@@ -69,23 +69,21 @@ class DeepFLAIRLightningModule(pl.LightningModule):
     def _log_images(self, x, y, y_hat, stage):
         # Extract central slice
         d_idx = x.shape[2] // 2
-        img = x[0, 0, d_idx].detach().cpu().numpy()
         lbl = y[0, 0, d_idx].detach().cpu().numpy()
         pred = y_hat[0, 0, d_idx].detach().cpu().numpy()
         
-        # Create side-by-side plot using Matplotlib
-        fig, axes = plt.subplots(1, 3, figsize=(15, 5))
-        axes[0].imshow(img, cmap='gray'); axes[0].set_title("Input (EPI)")
-        axes[1].imshow(lbl, cmap='gray'); axes[1].set_title("Target (FLAIR*)")
-        axes[2].imshow(pred, cmap='gray'); axes[2].set_title(f"Prediction (Epoch {self.current_epoch})")
+        # Create side-by-side plot: Target | Prediction
+        fig, axes = plt.subplots(1, 2, figsize=(12, 6))
+        axes[0].imshow(lbl, cmap='gray'); axes[0].set_title("Target (FLAIR*)")
+        axes[1].imshow(pred, cmap='gray'); axes[1].set_title(f"Prediction (Epoch {self.current_epoch:03d})")
         for ax in axes: ax.axis('off')
         plt.tight_layout()
         
-        # 1. Save to disk with unique epoch name
-        epoch_path = f"vis/epoch_{self.current_epoch}_{stage}.png"
+        # 1. Save to disk with zero-padded epoch name for chronological sorting
+        epoch_path = f"vis/epoch_{self.current_epoch:03d}_{stage}.png"
         latest_path = f"vis/latest_{stage}_comparison.png"
         plt.savefig(epoch_path)
-        plt.savefig(latest_path) # Also keep a 'latest' for easy checking
+        plt.savefig(latest_path)
         
         # 2. Log to MLflow if available
         for logger in self.loggers:
@@ -96,8 +94,8 @@ class DeepFLAIRLightningModule(pl.LightningModule):
                     pass
             elif hasattr(logger, "experiment"):
                 if hasattr(logger.experiment, "add_image"):
-                    combined = np.concatenate([img, lbl, pred], axis=1)
-                    logger.experiment.add_image(f"{stage}_epoch_{self.current_epoch}", combined[np.newaxis, ...], self.global_step)
+                    combined = np.concatenate([lbl, pred], axis=1)
+                    logger.experiment.add_image(f"{stage}_epoch_{self.current_epoch:03d}", combined[np.newaxis, ...], self.global_step)
                 elif hasattr(logger.experiment, "log_artifact"):
                     # Use the logger's run_id if it exists
                     run_id = logger.run_id if hasattr(logger, "run_id") else None
