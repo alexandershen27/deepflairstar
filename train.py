@@ -53,6 +53,7 @@ def main(args):
         max_epochs=args.max_epochs,
         accelerator="auto",
         devices=args.devices,
+        strategy=args.strategy,
         logger=[tb_logger, ml_logger],
         callbacks=[checkpoint_callback, lr_monitor],
         log_every_n_steps=1,
@@ -81,6 +82,7 @@ if __name__ == "__main__":
     parser.add_argument("--num_workers", type=int, default=8)
     parser.add_argument("--cache_rate", type=float, default=1.0)
     parser.add_argument("--devices", type=str, default="auto")
+    parser.add_argument("--strategy", type=str, default="auto")
     parser.add_argument("--fast_dev_run", action="store_true", help="Run 1 full batch for train/val/test to catch bugs")
     parser.add_argument("--limit_train_batches", type=int, default=0, help="Limit number of train batches for testing")
     parser.add_argument("--limit_val_batches", type=int, default=0, help="Limit number of val batches for testing")

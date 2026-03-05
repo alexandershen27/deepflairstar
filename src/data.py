@@ -14,7 +14,7 @@ from monai.transforms import (
     SpatialPadd,
     RandFlipd,
     RandGaussianSmoothd,
-    RandSpatialCropd,
+    RandCropByPosNegLabeld,
     EnsureTyped,
 )
 from monai.data import Dataset, CacheDataset, PersistentDataset, DataLoader
@@ -31,7 +31,7 @@ class DeepFLAIRDataModule(pl.LightningDataModule):
         test_split: float = 0.2,
         random_state: int = 42,
         cache_rate: float = 0.0,
-        cache_dir: str = "outputs/monai_cache", # Added for PersistentDataset
+        cache_dir: str = "outputs/monai_cache",
     ):
         super().__init__()
         self.save_hyperparameters()
@@ -61,7 +61,6 @@ class DeepFLAIRDataModule(pl.LightningDataModule):
         if not valid_data:
             raise RuntimeError(f"No valid subject pairs found in {self.data_dir}")
 
-        # Safe split for small debug datasets
         n_test = max(1, int(len(valid_data) * self.test_split)) if len(valid_data) > 1 else 0
         if n_test > 0 and len(valid_data) > n_test:
             train_val_files, test_files = train_test_split(
@@ -76,9 +75,8 @@ class DeepFLAIRDataModule(pl.LightningDataModule):
                 train_val_files, test_size=n_val, random_state=self.random_state
             )
         else:
-            train_files, val_files = train_val_files, train_val_files # Fallback for tiny datasets
+            train_files, val_files = train_val_files, train_val_files
 
-        # Helper to select dataset type
         def get_dataset(files, transforms):
             if self.cache_dir and self.cache_dir.lower() != "none":
                 os.makedirs(self.cache_dir, exist_ok=True)
@@ -102,7 +100,16 @@ class DeepFLAIRDataModule(pl.LightningDataModule):
             SpatialPadd(keys=["image", "label"], spatial_size=self.padding_size),
             RandFlipd(keys=["image", "label"], prob=0.5, spatial_axis=[0, 1]),
             RandGaussianSmoothd(keys=["image"], sigma_x=(0.25, 1.5), sigma_y=(0.25, 1.5), sigma_z=(0.25, 1.5), prob=0.3),
-            RandSpatialCropd(keys=["image", "label"], roi_size=self.patch_size, random_center=True, random_size=False),
+            RandCropByPosNegLabeld(
+                keys=["image", "label"],
+                label_key="label",
+                spatial_size=self.patch_size,
+                pos=1,
+                neg=1,
+                num_samples=1,
+                image_key="image",
+                image_threshold=0.01,
+            ),
             EnsureTyped(keys=["image", "label"]),
         ])
 
