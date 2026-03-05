@@ -1,6 +1,8 @@
 import torch
 import numpy as np
 import pytorch_lightning as pl
+import os
+import matplotlib.pyplot as plt
 from monai.inferers import SlidingWindowInferer
 from src.arch.unet import DeepFLAIRNet
 from src.losses import DeepFLAIRLoss
@@ -27,7 +29,6 @@ class DeepFLAIRLightningModule(pl.LightningModule):
             grad_weight=grad_weight
         )
         
-        # Sliding window for validation/testing
         self.inferer = SlidingWindowInferer(
             roi_size=patch_size,
             sw_batch_size=4,
@@ -35,70 +36,73 @@ class DeepFLAIRLightningModule(pl.LightningModule):
             mode="gaussian"
         )
 
+        os.makedirs("vis", exist_ok=True)
+
     def forward(self, x):
         return self.model(x)
 
     def training_step(self, batch, batch_idx):
         x, y = batch["image"], batch["label"]
         y_hat = self.model(x)
-        
         loss, metrics = self.loss_fn(y_hat, y)
         
-        self.log("train_loss", loss, prog_bar=True, on_step=True, on_epoch=True)
+        self.log("train_loss", loss, prog_bar=True, on_step=True, on_epoch=True, sync_dist=True)
         for name, val in metrics.items():
-            self.log(f"train_{name}", val)
+            self.log(f"train_{name}", val, sync_dist=True)
             
         return loss
 
     def validation_step(self, batch, batch_idx):
         x, y = batch["image"], batch["label"]
-        
-        # Use sliding window for full-volume validation
         y_hat = self.inferer(x, self.model)
-        
         loss, metrics = self.loss_fn(y_hat, y)
         
-        self.log("val_loss", loss, prog_bar=True)
+        self.log("val_loss", loss, prog_bar=True, sync_dist=True)
         for name, val in metrics.items():
-            self.log(f"val_{name}", val)
+            self.log(f"val_{name}", val, sync_dist=True)
             
-        if self.logger is not None and batch_idx == 0:
+        if batch_idx == 0:
             self._log_images(x, y, y_hat, "val")
             
         return loss
 
     def _log_images(self, x, y, y_hat, stage):
-        # Find the TensorBoard logger if available
-        tb_logger = None
-        if isinstance(self.logger, list):
-            for l in self.logger:
-                if hasattr(l, "experiment") and hasattr(l.experiment, "add_image"):
-                    tb_logger = l
-                    break
-        elif hasattr(self.logger, "experiment") and hasattr(self.logger.experiment, "add_image"):
-            tb_logger = self.logger
-
-        if tb_logger is None:
-            return
-            
-        # Log central slice to TensorBoard
-        # x shape: [B, C, D, H, W]
+        # Extract central slice
         d_idx = x.shape[2] // 2
         img = x[0, 0, d_idx].detach().cpu().numpy()
         lbl = y[0, 0, d_idx].detach().cpu().numpy()
         pred = y_hat[0, 0, d_idx].detach().cpu().numpy()
         
-        # Stack images horizontally
-        combined = np.concatenate([img, lbl, pred], axis=1)
+        # Create side-by-side plot using Matplotlib (safe for all loggers)
+        fig, axes = plt.subplots(1, 3, figsize=(15, 5))
+        axes[0].imshow(img, cmap='gray'); axes[0].set_title("Input (EPI)")
+        axes[1].imshow(lbl, cmap='gray'); axes[1].set_title("Target (FLAIR*)")
+        axes[2].imshow(pred, cmap='gray'); axes[2].set_title("Prediction")
+        for ax in axes: ax.axis('off')
+        plt.tight_layout()
         
-        # Add channel dimension for TB [C, H, W]
-        combined_tb = combined[np.newaxis, ...]
+        # 1. Save to disk (Hard Disk Safety)
+        local_path = f"vis/latest_{stage}_comparison.png"
+        plt.savefig(local_path)
         
-        tb_logger.experiment.add_image(
-            f"{stage}_comparison", 
-            combined_tb, 
-            self.global_step
-        )
+        # 2. Log to MLflow if available
+        for logger in self.loggers:
+            if hasattr(logger, "log_image") and not hasattr(logger, "experiment"):
+                # MLflow logger handles images via log_image or log_artifact
+                try:
+                    logger.log_image(key=f"{stage}_comparison", image=local_path)
+                except:
+                    pass
+            elif hasattr(logger, "experiment"):
+                # TensorBoard style
+                if hasattr(logger.experiment, "add_image"):
+                    combined = np.concatenate([img, lbl, pred], axis=1)
+                    logger.experiment.add_image(f"{stage}_comparison", combined[np.newaxis, ...], self.global_step)
+                # MLflow style experiment
+                elif hasattr(logger.experiment, "log_artifact"):
+                    logger.experiment.log_artifact(self.run_id if hasattr(self, 'run_id') else logger.run_id, local_path, "val_visualizations")
+
+        plt.close(fig)
 
     def configure_optimizers(self):
         optimizer = torch.optim.Adam(
