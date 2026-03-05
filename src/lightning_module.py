@@ -99,7 +99,12 @@ class DeepFLAIRLightningModule(pl.LightningModule):
                     combined = np.concatenate([img, lbl, pred], axis=1)
                     logger.experiment.add_image(f"{stage}_epoch_{self.current_epoch}", combined[np.newaxis, ...], self.global_step)
                 elif hasattr(logger.experiment, "log_artifact"):
-                    logger.experiment.log_artifact(local_path=epoch_path, artifact_path="val_visualizations")
+                    # Use the logger's run_id if it exists
+                    run_id = logger.run_id if hasattr(logger, "run_id") else None
+                    if run_id:
+                        logger.experiment.log_artifact(run_id=run_id, local_path=epoch_path, artifact_path="val_visualizations")
+                    else:
+                        logger.experiment.log_artifact(local_path=epoch_path, artifact_path="val_visualizations")
 
         plt.close(fig)
 
