@@ -73,34 +73,33 @@ class DeepFLAIRLightningModule(pl.LightningModule):
         lbl = y[0, 0, d_idx].detach().cpu().numpy()
         pred = y_hat[0, 0, d_idx].detach().cpu().numpy()
         
-        # Create side-by-side plot using Matplotlib (safe for all loggers)
+        # Create side-by-side plot using Matplotlib
         fig, axes = plt.subplots(1, 3, figsize=(15, 5))
         axes[0].imshow(img, cmap='gray'); axes[0].set_title("Input (EPI)")
         axes[1].imshow(lbl, cmap='gray'); axes[1].set_title("Target (FLAIR*)")
-        axes[2].imshow(pred, cmap='gray'); axes[2].set_title("Prediction")
+        axes[2].imshow(pred, cmap='gray'); axes[2].set_title(f"Prediction (Epoch {self.current_epoch})")
         for ax in axes: ax.axis('off')
         plt.tight_layout()
         
-        # 1. Save to disk (Hard Disk Safety)
-        local_path = f"vis/latest_{stage}_comparison.png"
-        plt.savefig(local_path)
+        # 1. Save to disk with unique epoch name
+        epoch_path = f"vis/epoch_{self.current_epoch}_{stage}.png"
+        latest_path = f"vis/latest_{stage}_comparison.png"
+        plt.savefig(epoch_path)
+        plt.savefig(latest_path) # Also keep a 'latest' for easy checking
         
         # 2. Log to MLflow if available
         for logger in self.loggers:
             if hasattr(logger, "log_image") and not hasattr(logger, "experiment"):
-                # MLflow logger handles images via log_image or log_artifact
                 try:
-                    logger.log_image(key=f"{stage}_comparison", image=local_path)
+                    logger.log_image(key=f"{stage}_comparison", image=epoch_path)
                 except:
                     pass
             elif hasattr(logger, "experiment"):
-                # TensorBoard style
                 if hasattr(logger.experiment, "add_image"):
                     combined = np.concatenate([img, lbl, pred], axis=1)
-                    logger.experiment.add_image(f"{stage}_comparison", combined[np.newaxis, ...], self.global_step)
-                # MLflow style experiment
+                    logger.experiment.add_image(f"{stage}_epoch_{self.current_epoch}", combined[np.newaxis, ...], self.global_step)
                 elif hasattr(logger.experiment, "log_artifact"):
-                    logger.experiment.log_artifact(self.run_id if hasattr(self, 'run_id') else logger.run_id, local_path, "val_visualizations")
+                    logger.experiment.log_artifact(local_path=epoch_path, artifact_path="val_visualizations")
 
         plt.close(fig)
 
