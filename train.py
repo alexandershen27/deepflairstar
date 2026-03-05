@@ -18,7 +18,8 @@ def main(args):
         batch_size=args.batch_size,
         patch_size=(args.patch_size, args.patch_size, args.patch_size),
         num_workers=args.num_workers,
-        cache_rate=args.cache_rate
+        cache_rate=args.cache_rate,
+        num_samples=args.num_samples
     )
     
     # 2. LightningModule
@@ -36,7 +37,19 @@ def main(args):
     # 3. Loggers
     os.makedirs("logs", exist_ok=True)
     tb_logger = TensorBoardLogger("logs", name="deepflair_tb")
-    ml_logger = MLFlowLogger(experiment_name="DeepFLAIR_Star", save_dir="logs/mlflow")
+    ml_logger = MLFlowLogger(
+        experiment_name="DeepFLAIR_Star", 
+        save_dir="logs/mlflow",
+        log_model=True
+    )
+    
+    # Enable system metrics (requires psutil and pynvml)
+    try:
+        import mlflow
+        mlflow.set_experiment("DeepFLAIR_Star")
+        mlflow.enable_system_metrics_logging()
+    except Exception as e:
+        print(f"System metrics logging not available: {e}")
     
     # 4. Callbacks
     checkpoint_callback = ModelCheckpoint(
@@ -80,6 +93,7 @@ if __name__ == "__main__":
     parser.add_argument("--grad_weight", type=float, default=1.0)
     parser.add_argument("--max_epochs", type=int, default=75)
     parser.add_argument("--num_workers", type=int, default=8)
+    parser.add_argument("--num_samples", type=int, default=16)
     parser.add_argument("--cache_rate", type=float, default=1.0)
     parser.add_argument("--devices", type=str, default="auto")
     parser.add_argument("--strategy", type=str, default="auto")

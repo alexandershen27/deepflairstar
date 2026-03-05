@@ -7,3 +7,5 @@ nibabel>=5.1.0
 mlflow>=2.7.0
 tensorboard>=2.14.0
 pytest>=7.4.0
+psutil
+pynvml
