@@ -17,7 +17,7 @@ from monai.transforms import (
     RandCropByPosNegLabeld,
     EnsureTyped,
 )
-from monai.data import Dataset, CacheDataset, PersistentDataset, DataLoader, PatchDataset
+from monai.data import Dataset, CacheDataset, PersistentDataset, DataLoader
 
 class DeepFLAIRDataModule(pl.LightningDataModule):
     def __init__(
@@ -69,36 +69,17 @@ class DeepFLAIRDataModule(pl.LightningDataModule):
         if not valid_data:
             raise RuntimeError(f"No valid subject pairs found in {self.data_dir}")
 
-        n_test = max(1, int(len(valid_data) * self.test_split)) if len(valid_data) > 1 else 0
-        if n_test > 0 and len(valid_data) > n_test:
-            train_val_files, test_files = train_test_split(
-                valid_data, test_size=n_test, random_state=self.random_state
-            )
-        else:
-            train_val_files, test_files = valid_data, []
-
-        n_val = max(1, int(len(train_val_files) * self.val_split)) if len(train_val_files) > 1 else 0
-        if n_val > 0 and len(train_val_files) > n_val:
-            train_files, val_files = train_test_split(
-                train_val_files, test_size=n_val, random_state=self.random_state
-            )
-        else:
-            train_files, val_files = train_val_files, train_val_files
+        train_val_files, test_files = train_test_split(
+            valid_data, test_size=self.test_split, random_state=self.random_state
+        )
+        train_files, val_files = train_test_split(
+            train_val_files, test_size=self.val_split, random_state=self.random_state
+        )
 
         if stage == "fit" or stage is None:
-            # 1. Base volumes (Loaded, Normalized, Padded)
-            base_train_ds = self._get_base_dataset(train_files, self.get_volume_transforms())
-            
-            # 2. Patch expansion (1 volume -> 16 patches)
-            patch_ds = PatchDataset(
-                data=base_train_ds,
-                patch_func=self.get_patch_transforms(),
-                samples_per_image=self.num_samples
-            )
-            
-            # 3. Final Patch Dataset (Applies Flips/Blurs to EACH individual patch)
-            self.train_ds = Dataset(data=patch_ds, transform=self.get_post_patch_transforms())
-            
+            # Simple Strategy: Multiply the list to get multiple random patches per brain
+            expanded_train_files = train_files * self.num_samples
+            self.train_ds = self._get_base_dataset(expanded_train_files, self.get_train_transforms())
             self.val_ds = self._get_base_dataset(val_files, self.get_volume_transforms())
         
         if stage == "test" or stage is None:
@@ -121,21 +102,21 @@ class DeepFLAIRDataModule(pl.LightningDataModule):
             EnsureTyped(keys=["image", "label"]),
         ])
 
-    def get_patch_transforms(self):
-        """Returns the list of 16 patches from a volume."""
-        return RandCropByPosNegLabeld(
-            keys=["image", "label"],
-            label_key="label",
-            spatial_size=self.patch_size,
-            pos=1, neg=1,
-            num_samples=self.num_samples,
-            image_key="image",
-            image_threshold=0.01,
-        )
-
-    def get_post_patch_transforms(self):
-        """Applied to every patch independently."""
+    def get_train_transforms(self):
         return Compose([
+            LoadImaged(keys=["image", "label"]),
+            EnsureChannelFirstd(keys=["image", "label"]),
+            ScaleIntensityd(keys=["image", "label"], minv=0.0, maxv=1.0),
+            SpatialPadd(keys=["image", "label"], spatial_size=self.padding_size),
+            RandCropByPosNegLabeld(
+                keys=["image", "label"],
+                label_key="label",
+                spatial_size=self.patch_size,
+                pos=1, neg=1,
+                num_samples=1,
+                image_key="image",
+                image_threshold=0.01,
+            ),
             RandFlipd(keys=["image", "label"], prob=0.5, spatial_axis=[0, 1]),
             RandGaussianSmoothd(keys=["image"], sigma_x=(0.25, 1.5), sigma_y=(0.25, 1.5), sigma_z=(0.25, 1.5), prob=0.3),
             EnsureTyped(keys=["image", "label"]),
