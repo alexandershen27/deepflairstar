@@ -87,8 +87,7 @@ class DeepFLAIRDataModule(pl.LightningDataModule):
             self.train_ds = PatchDataset(
                 data=base_train_ds,
                 patch_func=self.get_patch_transforms(),
-                samples_per_image=self.num_samples,
-                runtime_cache=True
+                samples_per_image=self.num_samples
             )
             # 2. Validation (Full Volumes)
             self.val_ds = self._get_base_dataset(val_files, self.get_val_transforms())
