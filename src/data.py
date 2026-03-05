@@ -51,11 +51,21 @@ class DeepFLAIRDataModule(pl.LightningDataModule):
     def _get_subject_list(self) -> List[Dict[str, str]]:
         subjects = sorted(glob.glob(os.path.join(self.data_dir, "01_*")))
         valid_data = []
+        print(f"DEBUG: Scanning {len(subjects)} potential subject folders in {self.data_dir}")
         for sub_dir in subjects:
             epi = os.path.join(sub_dir, "EPI_acpc.nii.gz")
             flair = os.path.join(sub_dir, "FLAIR_star.nii.gz")
-            if os.path.exists(epi) and os.path.exists(flair):
+            has_epi = os.path.exists(epi)
+            has_flair = os.path.exists(flair)
+            
+            if has_epi and has_flair:
                 valid_data.append({"image": epi, "label": flair, "subject_id": os.path.basename(sub_dir)})
+            else:
+                reason = []
+                if not has_epi: reason.append(f"Missing {os.path.basename(epi)}")
+                if not has_flair: reason.append(f"Missing {os.path.basename(flair)}")
+                print(f"DEBUG: Subject {os.path.basename(sub_dir)} skipped. Reason: {', '.join(reason)}")
+        
         return valid_data
 
     def setup(self, stage: Optional[str] = None):
@@ -134,7 +144,14 @@ class DeepFLAIRDataModule(pl.LightningDataModule):
         return self.get_volume_transforms()
 
     def train_dataloader(self):
-        return DataLoader(self.train_ds, batch_size=self.batch_size, shuffle=True, num_workers=self.num_workers, pin_memory=True)
+        # PatchDataset is an IterableDataset in some versions, which doesn't allow shuffle=True in DataLoader
+        return DataLoader(
+            self.train_ds, 
+            batch_size=self.batch_size, 
+            shuffle=False, # Changed from True to fix ValueError
+            num_workers=self.num_workers, 
+            pin_memory=True
+        )
 
     def val_dataloader(self):
         return DataLoader(self.val_ds, batch_size=1, num_workers=self.num_workers, pin_memory=True)
