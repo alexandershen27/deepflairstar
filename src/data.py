@@ -17,7 +17,7 @@ from monai.transforms import (
     RandCropByPosNegLabeld,
     EnsureTyped,
 )
-from monai.data import Dataset, CacheDataset, PersistentDataset, DataLoader, PatchDataset
+from monai.data import Dataset, CacheDataset, PersistentDataset, DataLoader
 
 class DeepFLAIRDataModule(pl.LightningDataModule):
     def __init__(
@@ -49,28 +49,17 @@ class DeepFLAIRDataModule(pl.LightningDataModule):
         self.num_samples = num_samples
 
     def _get_subject_list(self) -> List[Dict[str, str]]:
-        # Look for any subdirectory inside the data directory
         subjects = sorted([
             os.path.join(self.data_dir, d) 
             for d in os.listdir(self.data_dir) 
             if os.path.isdir(os.path.join(self.data_dir, d)) and not d.startswith('.')
         ])
         valid_data = []
-        print(f"DEBUG: Scanning {len(subjects)} potential subject folders in {self.data_dir}")
         for sub_dir in subjects:
             epi = os.path.join(sub_dir, "EPI_acpc.nii.gz")
             flair = os.path.join(sub_dir, "FLAIR_star.nii.gz")
-            has_epi = os.path.exists(epi)
-            has_flair = os.path.exists(flair)
-            
-            if has_epi and has_flair:
+            if os.path.exists(epi) and os.path.exists(flair):
                 valid_data.append({"image": epi, "label": flair, "subject_id": os.path.basename(sub_dir)})
-            else:
-                reason = []
-                if not has_epi: reason.append(f"Missing {os.path.basename(epi)}")
-                if not has_flair: reason.append(f"Missing {os.path.basename(flair)}")
-                print(f"DEBUG: Subject {os.path.basename(sub_dir)} skipped. Reason: {', '.join(reason)}")
-        
         return valid_data
 
     def setup(self, stage: Optional[str] = None):
@@ -97,14 +86,7 @@ class DeepFLAIRDataModule(pl.LightningDataModule):
             train_files, val_files = train_val_files, train_val_files
 
         if stage == "fit" or stage is None:
-            # 1. Training with PatchDataset (Volumes -> Patches)
-            base_train_ds = self._get_base_dataset(train_files, self.get_volume_transforms())
-            self.train_ds = PatchDataset(
-                data=base_train_ds,
-                patch_func=self.get_patch_transforms(),
-                samples_per_image=self.num_samples
-            )
-            # 2. Validation (Full Volumes)
+            self.train_ds = self._get_base_dataset(train_files, self.get_train_transforms())
             self.val_ds = self._get_base_dataset(val_files, self.get_val_transforms())
         
         if stage == "test" or stage is None:
@@ -118,8 +100,29 @@ class DeepFLAIRDataModule(pl.LightningDataModule):
             return CacheDataset(data=files, transform=transforms, cache_rate=self.cache_rate, num_workers=self.num_workers)
         return Dataset(data=files, transform=transforms)
 
-    def get_volume_transforms(self):
-        """Heavy lifting: Loading and Normalization (Done once per volume)"""
+    def get_train_transforms(self):
+        return Compose([
+            LoadImaged(keys=["image", "label"]),
+            EnsureChannelFirstd(keys=["image", "label"]),
+            ScaleIntensityd(keys=["image", "label"], minv=0.0, maxv=1.0),
+            SpatialPadd(keys=["image", "label"], spatial_size=self.padding_size),
+            RandCropByPosNegLabeld(
+                keys=["image", "label"],
+                label_key="label",
+                spatial_size=self.patch_size,
+                pos=1,
+                neg=1,
+                num_samples=self.num_samples, # MONAI expands this to a list of patches
+                image_key="image",
+                image_threshold=0.01,
+            ),
+            # Augmentation applied to EACH patch
+            RandFlipd(keys=["image", "label"], prob=0.5, spatial_axis=[0, 1]),
+            RandGaussianSmoothd(keys=["image"], sigma_x=(0.25, 1.5), sigma_y=(0.25, 1.5), sigma_z=(0.25, 1.5), prob=0.3),
+            EnsureTyped(keys=["image", "label"]),
+        ])
+
+    def get_val_transforms(self):
         return Compose([
             LoadImaged(keys=["image", "label"]),
             EnsureChannelFirstd(keys=["image", "label"]),
@@ -128,32 +131,11 @@ class DeepFLAIRDataModule(pl.LightningDataModule):
             EnsureTyped(keys=["image", "label"]),
         ])
 
-    def get_patch_transforms(self):
-        """Light lifting: Cropping and Augmentation (Done 16x per volume)"""
-        return Compose([
-            RandCropByPosNegLabeld(
-                keys=["image", "label"],
-                label_key="label",
-                spatial_size=self.patch_size,
-                pos=1,
-                neg=1,
-                num_samples=1,
-                image_key="image",
-                image_threshold=0.01,
-            ),
-            RandFlipd(keys=["image", "label"], prob=0.5, spatial_axis=[0, 1]),
-            RandGaussianSmoothd(keys=["image"], sigma_x=(0.25, 1.5), sigma_y=(0.25, 1.5), sigma_z=(0.25, 1.5), prob=0.3),
-        ])
-
-    def get_val_transforms(self):
-        return self.get_volume_transforms()
-
     def train_dataloader(self):
-        # PatchDataset is an IterableDataset in some versions, which doesn't allow shuffle=True in DataLoader
         return DataLoader(
             self.train_ds, 
             batch_size=self.batch_size, 
-            shuffle=False, # Changed from True to fix ValueError
+            shuffle=True, # Restore shuffling for better convergence
             num_workers=self.num_workers, 
             pin_memory=True
         )
