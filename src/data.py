@@ -106,7 +106,7 @@ class DeepFLAIRDataModule(pl.LightningDataModule):
                 spatial_size=self.patch_size,
                 pos=1,
                 neg=1,
-                num_samples=1,
+                num_samples=16,
                 image_key="image",
                 image_threshold=0.01,
             ),
