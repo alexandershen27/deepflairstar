@@ -1,0 +1,17 @@
+# Data & Large Files
+data/
+outputs/
+logs/
+vis/
+mlruns/
+lightning_logs/
+.DS_Store
+
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+.venv/
+.env
+.pytest_cache/
+.ipynb_checkpoints/
