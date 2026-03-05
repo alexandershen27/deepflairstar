@@ -49,7 +49,12 @@ class DeepFLAIRDataModule(pl.LightningDataModule):
         self.num_samples = num_samples
 
     def _get_subject_list(self) -> List[Dict[str, str]]:
-        subjects = sorted(glob.glob(os.path.join(self.data_dir, "01_*")))
+        # Look for any subdirectory inside the data directory
+        subjects = sorted([
+            os.path.join(self.data_dir, d) 
+            for d in os.listdir(self.data_dir) 
+            if os.path.isdir(os.path.join(self.data_dir, d)) and not d.startswith('.')
+        ])
         valid_data = []
         print(f"DEBUG: Scanning {len(subjects)} potential subject folders in {self.data_dir}")
         for sub_dir in subjects:
