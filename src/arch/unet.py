@@ -4,29 +4,24 @@ from typing import Sequence, Optional, Union
 
 class ResidualBlock(nn.Module):
     """
-    Standard block B from paper: 2x (Conv3D, BatchNorm3D, LeakyReLU)
+    Standard block B from paper: 2x (Conv3D, InstanceNorm3D, LeakyReLU)
+    Switched to InstanceNorm for stability with small batches.
     """
     def __init__(self, in_channels: int, out_channels: int):
         super().__init__()
         self.block = nn.Sequential(
             nn.Conv3d(in_channels, out_channels, kernel_size=3, padding=1),
-            nn.BatchNorm3d(out_channels),
-            nn.LeakyReLU(inplace=True),
+            nn.InstanceNorm3d(out_channels, affine=True), # Swapped from BatchNorm
+            nn.LeakyReLU(negative_slope=0.01, inplace=True),
             nn.Conv3d(out_channels, out_channels, kernel_size=3, padding=1),
-            nn.BatchNorm3d(out_channels),
-            nn.LeakyReLU(inplace=True)
+            nn.InstanceNorm3d(out_channels, affine=True), # Swapped from BatchNorm
+            nn.LeakyReLU(negative_slope=0.01, inplace=True)
         )
 
     def forward(self, x):
         return self.block(x)
 
 class DeepFLAIRNet(nn.Module):
-    """
-    3D U-Net as described in the DeepFLAIR* paper.
-    Architecture:
-    Input -> B(16) -> A -> B(32) -> A -> B(64) -> A -> B(128) -> A -> B(256) (Bottleneck)
-    ...and back up using Skip Connections and ConvTranspose.
-    """
     def __init__(self, in_channels: int = 1, out_channels: int = 1, base_channels: int = 16):
         super().__init__()
         
@@ -48,7 +43,7 @@ class DeepFLAIRNet(nn.Module):
         
         # Decoder
         self.up4 = nn.ConvTranspose3d(base_channels * 16, base_channels * 8, kernel_size=2, stride=2)
-        self.dec4 = ResidualBlock(base_channels * 16, base_channels * 8) # concat(up4, enc4)
+        self.dec4 = ResidualBlock(base_channels * 16, base_channels * 8)
         
         self.up3 = nn.ConvTranspose3d(base_channels * 8, base_channels * 4, kernel_size=2, stride=2)
         self.dec3 = ResidualBlock(base_channels * 8, base_channels * 4)
@@ -59,15 +54,14 @@ class DeepFLAIRNet(nn.Module):
         self.up1 = nn.ConvTranspose3d(base_channels * 2, base_channels, kernel_size=2, stride=2)
         self.dec1 = ResidualBlock(base_channels * 2, base_channels)
         
-        # Final projection: Additional block B + 1x1x1 Conv + ReLU
+        # Final projection: Additional block B + 1x1x1 Conv
+        # Removed ReLU to prevent "Dead Model" issue
         self.final_conv = nn.Sequential(
             ResidualBlock(base_channels, base_channels),
-            nn.Conv3d(base_channels, out_channels, kernel_size=1),
-            nn.ReLU(inplace=True)
+            nn.Conv3d(base_channels, out_channels, kernel_size=1)
         )
 
     def forward(self, x):
-        # Encoder
         e1 = self.enc1(x)
         p1 = self.pool1(e1)
         
@@ -80,10 +74,8 @@ class DeepFLAIRNet(nn.Module):
         e4 = self.enc4(p3)
         p4 = self.pool4(e4)
         
-        # Bottleneck
         b = self.bottleneck(p4)
         
-        # Decoder
         u4 = self.up4(b)
         d4 = self.dec4(torch.cat([u4, e4], dim=1))
         
