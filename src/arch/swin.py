@@ -8,13 +8,16 @@ class DeepFLAIRSwin(nn.Module):
         img_size: tuple = (64, 64, 64),
         in_channels: int = 1,
         out_channels: int = 1,
-        feature_size: int = 24, 
+        feature_size: int = 24, # Must be divisible by 12 per MONAI constraint
         use_checkpoint: bool = False,
     ):
         super().__init__()
         
-        # Using positional arguments for img_size, in_channels, out_channels
-        # This is the most stable way across MONAI 1.0 -> 1.3
+        # Ensure feature_size is valid for SwinUNETR
+        if feature_size % 12 != 0:
+            print(f"--- WARNING: Adjusting Swin feature_size from {feature_size} to 24 for compliance ---")
+            feature_size = 24
+
         self.model = SwinUNETR(
             img_size,
             in_channels,
