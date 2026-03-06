@@ -8,8 +8,40 @@ from pytorch_lightning.callbacks import ModelCheckpoint, LearningRateMonitor
 from src.data import DeepFLAIRDataModule
 from src.lightning_module import DeepFLAIRLightningModule
 
+# 1. Callback to force the starting epoch for manual fine-tuning
+class ResumeEpochCallback(pl.Callback):
+    def __init__(self, start_epoch):
+        self.start_epoch = start_epoch
+
+    def on_train_start(self, trainer, pl_module):
+        print(f"--- CALLBACK: Forcing Trainer state to Epoch {self.start_epoch} ---")
+        trainer.fit_loop.epoch_progress.current.completed = self.start_epoch
+        trainer.fit_loop.epoch_progress.current.processed = self.start_epoch
+
+# 2. Callback to safely start system metrics logging in DDP mode
+class SystemMetricsCallback(pl.Callback):
+    def on_train_start(self, trainer, pl_module):
+        if trainer.is_global_zero:
+            try:
+                import mlflow
+                # Find the MLFlowLogger in the list of loggers
+                ml_logger = None
+                if isinstance(trainer.logger, list):
+                    for l in trainer.logger:
+                        if isinstance(l, MLFlowLogger):
+                            ml_logger = l
+                            break
+                elif isinstance(trainer.logger, MLFlowLogger):
+                    ml_logger = trainer.logger
+
+                if ml_logger:
+                    print(f"--- SYSTEM METRICS: Starting monitor for Run {ml_logger.run_id} ---")
+                    os.environ["MLFLOW_ENABLE_SYSTEM_METRICS_LOGGING"] = "true"
+                    mlflow.enable_system_metrics_logging()
+            except Exception as e:
+                print(f"System metrics monitor failed to start: {e}")
+
 def main(args):
-    # Set precision
     torch.set_float32_matmul_precision('high')
     
     # 1. DataModule
@@ -34,13 +66,15 @@ def main(args):
         patch_size=(args.patch_size, args.patch_size, args.patch_size)
     )
     
-    # Manual Weight Loading (Resuming while allowing hyperparameter changes)
+    start_epoch = 0
+    # Manual Weight Loading
     if args.ckpt_path:
         print(f"--- MANUAL LOAD: Transferring weights from {args.ckpt_path} ---")
         checkpoint = torch.load(args.ckpt_path, map_location='cpu')
         state_dict = checkpoint['state_dict']
+        start_epoch = checkpoint.get('epoch', 0)
         
-        # 1. Strip Lightning's 'model.' prefix
+        # Strip Lightning's 'model.' prefix
         new_state_dict = {}
         for k, v in state_dict.items():
             name = k
@@ -48,26 +82,11 @@ def main(args):
                 name = name.replace('model.', '', 1)
             new_state_dict[name] = v
             
-        # 2. Load into the inner model (DeepFLAIRNet)
-        msg = model.model.load_state_dict(new_state_dict, strict=False)
-        print(f"--- LOAD STATUS: {msg} ---")
+        model.model.load_state_dict(new_state_dict, strict=False)
     
     # 3. Loggers
     log_dir = os.path.abspath("logs/mlflow")
     os.makedirs("logs", exist_ok=True)
-    
-    # Force global MLflow to use the same directory as the logger
-    try:
-        import mlflow
-        mlflow.set_tracking_uri(f"file:{log_dir}")
-        mlflow.set_experiment("DeepFLAIR_Star")
-        # Set environment variable before enabling
-        os.environ["MLFLOW_ENABLE_SYSTEM_METRICS_LOGGING"] = "true"
-        mlflow.enable_system_metrics_logging()
-        print(f"--- SYSTEM METRICS: Enabled (Target: {log_dir}) ---")
-    except Exception as e:
-        print(f"System metrics logging setup failed: {e}")
-
     tb_logger = TensorBoardLogger("logs", name="deepflair_tb")
     ml_logger = MLFlowLogger(
         experiment_name="DeepFLAIR_Star", 
@@ -80,11 +99,15 @@ def main(args):
         monitor="val_loss",
         dirpath="outputs/checkpoints",
         filename="deepflair-{epoch:03d}-{val_loss:.4f}",
-        save_top_k=10, # Increased from 3 to 10
+        save_top_k=10,
         mode="min",
-        save_last=True # Always keep the very latest
+        save_last=True
     )
     lr_monitor = LearningRateMonitor(logging_interval="step")
+    
+    callbacks = [checkpoint_callback, lr_monitor, SystemMetricsCallback()]
+    if start_epoch > 0:
+        callbacks.append(ResumeEpochCallback(start_epoch=start_epoch))
     
     # 5. Trainer
     trainer = pl.Trainer(
@@ -93,7 +116,7 @@ def main(args):
         devices=args.devices,
         strategy=args.strategy,
         logger=[tb_logger, ml_logger],
-        callbacks=[checkpoint_callback, lr_monitor],
+        callbacks=callbacks,
         log_every_n_steps=1,
         precision="16-mixed" if args.devices != "cpu" else 32,
         fast_dev_run=args.fast_dev_run,
@@ -101,14 +124,7 @@ def main(args):
         limit_val_batches=args.limit_val_batches if args.limit_val_batches > 0 else None,
     )
     
-    # Set the starting epoch if resuming manually
-    if args.ckpt_path:
-        checkpoint = torch.load(args.ckpt_path, map_location='cpu')
-        if 'epoch' in checkpoint:
-            trainer.fit_loop.epoch_progress.current.completed = checkpoint['epoch']
-            print(f"--- CONTINUITY: Setting start epoch to {checkpoint['epoch']} ---")
-
-    # 6. Train (Note: No ckpt_path passed here to prevent overwriting our manual load)
+    # 6. Train (Fit starts a new run, but callbacks handle the continuity)
     trainer.fit(model, datamodule=dm)
 
 if __name__ == "__main__":
