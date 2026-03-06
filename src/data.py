@@ -5,6 +5,7 @@ import numpy as np
 import pytorch_lightning as pl
 from typing import Optional, Sequence, Dict, Any, List
 from sklearn.model_selection import train_test_split
+from torch.utils.data import Dataset as TorchDataset
 
 from monai.transforms import (
     Compose,
@@ -16,7 +17,61 @@ from monai.transforms import (
     RandGaussianSmoothd,
     EnsureTyped,
 )
-from monai.data import Dataset, CacheDataset, PersistentDataset, DataLoader, GridPatchDataset, PatchIter
+from monai.data import Dataset, CacheDataset, PersistentDataset, DataLoader
+
+class DeepFLAIRManualGridDataset(TorchDataset):
+    """
+    Manual Grid Tiling Dataset.
+    Calculates coordinates for 64^3 patches with 50% overlap.
+    """
+    def __init__(self, base_dataset, patch_size=(64, 64, 64), volume_size=(320, 384, 320), transform=None):
+        self.base_dataset = base_dataset
+        self.patch_size = np.array(patch_size)
+        self.volume_size = np.array(volume_size)
+        self.transform = transform
+        
+        # Calculate stride (50% overlap)
+        self.stride = self.patch_size // 2
+        
+        # Pre-calculate all possible top-left corners for the grid
+        self.coords = []
+        for z in range(0, self.volume_size[0] - self.patch_size[0] + 1, self.stride[0]):
+            for y in range(0, self.volume_size[1] - self.patch_size[1] + 1, self.stride[1]):
+                for x in range(0, self.volume_size[2] - self.patch_size[2] + 1, self.stride[2]):
+                    self.coords.append((z, y, x))
+        
+        # Final list: (subject_index, coordinate_index)
+        self.index_map = []
+        for sub_idx in range(len(self.base_dataset)):
+            for coord_idx in range(len(self.coords)):
+                self.index_map.append((sub_idx, coord_idx))
+                
+        print(f"--- MANUAL GRID: Created {len(self.index_map)} total tiles across {len(self.base_dataset)} subjects ---")
+
+    def __len__(self):
+        return len(self.index_map)
+
+    def __getitem__(self, idx):
+        sub_idx, coord_idx = self.index_map[idx]
+        
+        # 1. Get the full volume from the base dataset (Cached or Persistent)
+        volume_data = self.base_dataset[sub_idx]
+        
+        # 2. Extract the patch manually
+        z, y, x = self.coords[coord_idx]
+        dz, dy, dx = self.patch_size
+        
+        patch_item = {
+            "image": volume_data["image"][:, z:z+dz, y:y+dy, x:x+dx],
+            "label": volume_data["label"][:, z:z+dz, y:y+dy, x:x+dx],
+            "subject_id": volume_data["subject_id"]
+        }
+        
+        # 3. Apply stochastic augmentations to the patch
+        if self.transform:
+            patch_item = self.transform(patch_item)
+            
+        return patch_item
 
 class DeepFLAIRDataModule(pl.LightningDataModule):
     def __init__(
@@ -46,7 +101,6 @@ class DeepFLAIRDataModule(pl.LightningDataModule):
         self.random_state = random_state
         self.cache_rate = cache_rate
         self.cache_dir = cache_dir
-        self.num_samples = num_samples
         self.pin_memory = pin_memory
 
     def _get_subject_list(self) -> List[Dict[str, str]]:
@@ -76,28 +130,16 @@ class DeepFLAIRDataModule(pl.LightningDataModule):
         )
 
         if stage == "fit" or stage is None:
-            # 1. Base Volume Dataset
+            # 1. Base volumes
             base_train_ds = self._get_base_dataset(train_files, self.get_volume_transforms())
-            
-            # 2. Grid Iterator with 0.5 overlap
-            # All spatial logic lives here in your version of MONAI
-            patch_iter = PatchIter(
-                patch_size=self.patch_size, 
-                start_pos=(0, 0, 0),
-                overlap=0.5 # 32-voxel stride
+            # 2. Manual Grid
+            self.train_ds = DeepFLAIRManualGridDataset(
+                base_dataset=base_train_ds,
+                patch_size=self.patch_size,
+                volume_size=self.padding_size,
+                transform=self.get_patch_transforms()
             )
-            
-            # 3. GridPatchDataset
-            # Pass only the iterator to avoid 'multiple values for overlap' conflict
-            self.train_ds = GridPatchDataset(
-                data=base_train_ds,
-                patch_iter=patch_iter,
-                with_coordinates=False
-            )
-            
-            # 4. Stochastic Augmentation
-            self.train_ds = Dataset(data=self.train_ds, transform=self.get_patch_transforms())
-            
+            # 3. Validation (Full volume)
             self.val_ds = self._get_base_dataset(val_files, self.get_volume_transforms())
         
         if stage == "test" or stage is None:
@@ -131,7 +173,7 @@ class DeepFLAIRDataModule(pl.LightningDataModule):
         return DataLoader(
             self.train_ds, 
             batch_size=self.batch_size, 
-            shuffle=False, 
+            shuffle=True, 
             num_workers=self.num_workers, 
             pin_memory=self.pin_memory
         )
