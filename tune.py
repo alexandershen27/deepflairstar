@@ -8,9 +8,8 @@ from src.data import DeepFLAIRDataModule
 from src.lightning_module import DeepFLAIRLightningModule
 
 def objective(trial, args):
-    # 1. GPU Isolation for Parallel Trials
+    # 1. GPU Isolation
     if args.n_jobs > 1:
-        # We assume 4 GPUs available
         gpu_id = trial.number % torch.cuda.device_count()
         devices = [gpu_id]
     else:
@@ -26,11 +25,10 @@ def objective(trial, args):
         data_dir=args.data_dir,
         batch_size=args.batch_size,
         num_workers=args.num_workers // args.n_jobs,
-        num_samples=8,
+        num_samples=args.num_samples,
         cache_rate=1.0,
-        pin_memory=False # Disable for parallel tuning stability
+        pin_memory=False
     )
-
     
     model = DeepFLAIRLightningModule(
         base_channels=args.base_channels,
@@ -40,8 +38,19 @@ def objective(trial, args):
         patch_size=(args.patch_size, args.patch_size, args.patch_size)
     )
     
-    # 4. Logging & Trainer
+    # 4. Logging & System Metrics Force
     log_dir = os.path.abspath("logs/mlflow")
+    os.makedirs(os.path.join(log_dir, "models"), exist_ok=True)
+    
+    # Force system metrics at the global level
+    import mlflow
+    mlflow.set_tracking_uri(f"file:{log_dir}")
+    os.environ["MLFLOW_ENABLE_SYSTEM_METRICS_LOGGING"] = "true"
+    try:
+        mlflow.enable_system_metrics_logging()
+    except:
+        pass
+
     ml_logger = pl.loggers.MLFlowLogger(
         experiment_name="DeepFLAIR_Tuning", 
         save_dir=log_dir,
@@ -77,7 +86,6 @@ def main():
     parser.add_argument("--num_samples", type=int, default=16)
     args = parser.parse_args()
 
-    # Create MLflow Callback for Optuna
     log_dir = os.path.abspath("logs/mlflow")
     mlflc = MLflowCallback(
         tracking_uri=f"file:{log_dir}",
@@ -98,11 +106,8 @@ def main():
         callbacks=[mlflc]
     )
 
-    print("\n" + "="*40)
-    print("--- TUNING COMPLETE ---")
+    print("\n--- TUNING COMPLETE ---")
     print(f"Best parameters: {study.best_params}")
-    print(f"Best val_loss: {study.best_value:.4f}")
-    print("="*40)
 
 if __name__ == "__main__":
     main()

@@ -84,15 +84,25 @@ class DeepFLAIRLightningModule(pl.LightningModule):
         
         # 1. Save to disk with zero-padded epoch name
         epoch_path = f"vis/epoch_{self.current_epoch:03d}_{stage}.png"
-        latest_path = f"vis/latest_{stage}_comparison.png"
+        pred_only_path = f"vis/epoch_{self.current_epoch:03d}_pred.png"
+        
         plt.savefig(epoch_path)
-        plt.savefig(latest_path)
+        
+        # Save just the prediction for the gallery
+        plt.close(fig)
+        plt.figure(figsize=(6, 6))
+        plt.imshow(pred, cmap='gray')
+        plt.axis('off')
+        plt.title(f"Prediction Epoch {self.current_epoch:03d}")
+        plt.savefig(pred_only_path)
+        plt.close()
         
         # 2. Log to MLflow if available
         for logger in self.loggers:
             if hasattr(logger, "log_image") and not hasattr(logger, "experiment"):
                 try:
                     logger.log_image(key=f"{stage}_comparison", image=epoch_path)
+                    logger.log_image(key="gallery_prediction", image=pred_only_path)
                 except:
                     pass
             elif hasattr(logger, "experiment"):
@@ -103,8 +113,10 @@ class DeepFLAIRLightningModule(pl.LightningModule):
                     run_id = logger.run_id if hasattr(logger, "run_id") else None
                     if run_id:
                         logger.experiment.log_artifact(run_id=run_id, local_path=epoch_path, artifact_path="val_visualizations")
+                        logger.experiment.log_artifact(run_id=run_id, local_path=pred_only_path, artifact_path="prediction_gallery")
                     else:
                         logger.experiment.log_artifact(local_path=epoch_path, artifact_path="val_visualizations")
+                        logger.experiment.log_artifact(local_path=pred_only_path, artifact_path="prediction_gallery")
 
         plt.close(fig)
 

@@ -28,8 +28,7 @@ class SystemMetricsCallback(pl.Callback):
                     print(f"--- SYSTEM METRICS: Starting monitor for Run {ml_logger.run_id} ---")
                     os.environ["MLFLOW_ENABLE_SYSTEM_METRICS_LOGGING"] = "true"
                     mlflow.enable_system_metrics_logging()
-            except Exception as e:
-                print(f"System metrics monitor failed to start: {e}")
+            except: pass
 
 def main(args):
     # 0. Reproducibility
@@ -69,15 +68,17 @@ def main(args):
         new_state_dict = {}
         for k, v in state_dict.items():
             name = k
-            if name.startswith('model.'):
-                name = name.replace('model.', '', 1)
+            if name.startswith('model.'): name = name.replace('model.', '', 1)
+            if name.startswith('module.'): name = name.replace('module.', '', 1)
+            if name.startswith('model.'): name = name.replace('model.', '', 1) # Double-check prefix
             new_state_dict[name] = v
             
         model.model.load_state_dict(new_state_dict, strict=False)
     
     # 3. Loggers
     log_dir = os.path.abspath("logs/mlflow")
-    os.makedirs("logs", exist_ok=True)
+    os.makedirs(os.path.join(log_dir, "models"), exist_ok=True)
+    os.makedirs(log_dir, exist_ok=True)
     
     try:
         import mlflow
