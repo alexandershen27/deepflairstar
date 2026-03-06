@@ -16,7 +16,7 @@ from monai.transforms import (
     RandGaussianSmoothd,
     EnsureTyped,
 )
-from monai.data import Dataset, CacheDataset, PersistentDataset, DataLoader, GridPatchDataset
+from monai.data import Dataset, CacheDataset, PersistentDataset, DataLoader, GridPatchDataset, PatchIter
 
 class DeepFLAIRDataModule(pl.LightningDataModule):
     def __init__(
@@ -31,7 +31,7 @@ class DeepFLAIRDataModule(pl.LightningDataModule):
         random_state: int = 42,
         cache_rate: float = 0.0,
         cache_dir: str = "outputs/monai_cache",
-        num_samples: int = 16, # Not used in grid mode but kept for CLI
+        num_samples: int = 16,
     ):
         super().__init__()
         self.save_hyperparameters()
@@ -73,16 +73,14 @@ class DeepFLAIRDataModule(pl.LightningDataModule):
         )
 
         if stage == "fit" or stage is None:
-            # 1. Base Volume Dataset
             base_train_ds = self._get_base_dataset(train_files, self.get_volume_transforms())
             
-            # 2. GridPatchDataset (Tiling logic)
-            # This handles the 0.5 overlap / 32 stride internally
+            # Use the newer PatchIter interface for GridPatchDataset
+            patch_iter = PatchIter(patch_size=self.patch_size, start_pos=(0, 0, 0))
+            
             self.train_ds = GridPatchDataset(
                 data=base_train_ds,
-                patch_size=self.patch_size,
-                start_pos=(0, 0, 0),
-                overlap=0.5,
+                patch_iter=patch_iter,
                 with_coordinates=False
             )
             
@@ -112,7 +110,7 @@ class DeepFLAIRDataModule(pl.LightningDataModule):
         return DataLoader(
             self.train_ds, 
             batch_size=self.batch_size, 
-            shuffle=False, # GridPatchDataset handles its own order
+            shuffle=False, 
             num_workers=self.num_workers, 
             pin_memory=True
         )
