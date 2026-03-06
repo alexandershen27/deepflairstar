@@ -24,7 +24,6 @@ class SystemMetricsCallback(pl.Callback):
         if trainer.is_global_zero:
             try:
                 import mlflow
-                # Find the MLFlowLogger in the list of loggers
                 ml_logger = None
                 if isinstance(trainer.logger, list):
                     for l in trainer.logger:
@@ -74,7 +73,6 @@ def main(args):
         state_dict = checkpoint['state_dict']
         start_epoch = checkpoint.get('epoch', 0)
         
-        # Strip Lightning's 'model.' prefix
         new_state_dict = {}
         for k, v in state_dict.items():
             name = k
@@ -87,6 +85,14 @@ def main(args):
     # 3. Loggers
     log_dir = os.path.abspath("logs/mlflow")
     os.makedirs("logs", exist_ok=True)
+    
+    try:
+        import mlflow
+        mlflow.set_tracking_uri(f"file:{log_dir}")
+        mlflow.set_experiment("DeepFLAIR_Star")
+    except:
+        pass
+
     tb_logger = TensorBoardLogger("logs", name="deepflair_tb")
     ml_logger = MLFlowLogger(
         experiment_name="DeepFLAIR_Star", 
@@ -115,6 +121,7 @@ def main(args):
         accelerator="auto",
         devices=args.devices,
         strategy=args.strategy,
+        sync_batchnorm=True, # Critical for stable BatchNorm in DDP
         logger=[tb_logger, ml_logger],
         callbacks=callbacks,
         log_every_n_steps=1,
@@ -124,7 +131,7 @@ def main(args):
         limit_val_batches=args.limit_val_batches if args.limit_val_batches > 0 else None,
     )
     
-    # 6. Train (Fit starts a new run, but callbacks handle the continuity)
+    # 6. Train
     trainer.fit(model, datamodule=dm)
 
 if __name__ == "__main__":
@@ -139,16 +146,16 @@ if __name__ == "__main__":
     parser.add_argument("--mse_weight", type=float, default=1.0)
     parser.add_argument("--ssim_weight", type=float, default=1.0)
     parser.add_argument("--grad_weight", type=float, default=1.0)
-    parser.add_argument("--max_epochs", type=int, default=75)
-    parser.add_argument("--num_workers", type=int, default=8)
+    parser.add_argument("--max_epochs", type=int, default=300)
+    parser.add_argument("--num_workers", type=int, default=16)
     parser.add_argument("--num_samples", type=int, default=16)
     parser.add_argument("--cache_rate", type=float, default=1.0)
     parser.add_argument("--devices", type=str, default="auto")
     parser.add_argument("--strategy", type=str, default="auto")
-    parser.add_argument("--fast_dev_run", action="store_true", help="Run 1 full batch for train/val/test to catch bugs")
-    parser.add_argument("--limit_train_batches", type=int, default=0, help="Limit number of train batches for testing")
-    parser.add_argument("--limit_val_batches", type=int, default=0, help="Limit number of val batches for testing")
-    parser.add_argument("--ckpt_path", type=str, default=None, help="Path to checkpoint to resume weights from")
+    parser.add_argument("--fast_dev_run", action="store_true")
+    parser.add_argument("--limit_train_batches", type=int, default=0)
+    parser.add_argument("--limit_val_batches", type=int, default=0)
+    parser.add_argument("--ckpt_path", type=str, default=None)
     
     args = parser.parse_args()
     main(args)

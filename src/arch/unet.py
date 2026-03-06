@@ -4,18 +4,17 @@ from typing import Sequence, Optional, Union
 
 class ResidualBlock(nn.Module):
     """
-    Standard block B from paper: 2x (Conv3D, InstanceNorm3D, LeakyReLU)
-    Switched to InstanceNorm for stability with small batches.
+    Standard block B from paper: 2x (Conv3D, BatchNorm3D, LeakyReLU)
     """
     def __init__(self, in_channels: int, out_channels: int):
         super().__init__()
         self.block = nn.Sequential(
             nn.Conv3d(in_channels, out_channels, kernel_size=3, padding=1),
-            nn.InstanceNorm3d(out_channels, affine=True), # Swapped from BatchNorm
-            nn.LeakyReLU(negative_slope=0.01, inplace=True),
+            nn.BatchNorm3d(out_channels),
+            nn.LeakyReLU(inplace=True),
             nn.Conv3d(out_channels, out_channels, kernel_size=3, padding=1),
-            nn.InstanceNorm3d(out_channels, affine=True), # Swapped from BatchNorm
-            nn.LeakyReLU(negative_slope=0.01, inplace=True)
+            nn.BatchNorm3d(out_channels),
+            nn.LeakyReLU(inplace=True)
         )
 
     def forward(self, x):
@@ -54,12 +53,24 @@ class DeepFLAIRNet(nn.Module):
         self.up1 = nn.ConvTranspose3d(base_channels * 2, base_channels, kernel_size=2, stride=2)
         self.dec1 = ResidualBlock(base_channels * 2, base_channels)
         
-        # Final projection: Additional block B + 1x1x1 Conv
-        # Removed ReLU to prevent "Dead Model" issue
+        # Final projection
         self.final_conv = nn.Sequential(
             ResidualBlock(base_channels, base_channels),
-            nn.Conv3d(base_channels, out_channels, kernel_size=1)
+            nn.Conv3d(base_channels, out_channels, kernel_size=1),
+            nn.ReLU(inplace=True)
         )
+
+        # He Initialization for ReLU stability
+        self.apply(self._init_weights)
+
+    def _init_weights(self, m):
+        if isinstance(m, (nn.Conv3d, nn.ConvTranspose3d)):
+            nn.init.kaiming_normal_(m.weight, mode='fan_out', nonlinearity='leaky_relu')
+            if m.bias is not None:
+                nn.init.constant_(m.bias, 0)
+        elif isinstance(m, nn.BatchNorm3d):
+            nn.init.constant_(m.weight, 1)
+            nn.init.constant_(m.bias, 0)
 
     def forward(self, x):
         e1 = self.enc1(x)
