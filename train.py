@@ -22,11 +22,14 @@ def main(args):
     pl.seed_everything(42, workers=True)
     torch.set_float32_matmul_precision('high')
     
+    # Force patch_size to be a tuple for indexing safety
+    patch_size_tuple = (int(args.patch_size), int(args.patch_size), int(args.patch_size))
+    
     # 1. DataModule
     dm = DeepFLAIRDataModule(
         data_dir=args.data_dir,
         batch_size=args.batch_size,
-        patch_size=(args.patch_size, args.patch_size, args.patch_size),
+        patch_size=patch_size_tuple,
         num_workers=args.num_workers,
         cache_rate=args.cache_rate,
         num_samples=args.num_samples
@@ -42,7 +45,7 @@ def main(args):
         mse_weight=args.mse_weight,
         ssim_weight=args.ssim_weight,
         grad_weight=args.grad_weight,
-        patch_size=(args.patch_size, args.patch_size, args.patch_size)
+        patch_size=patch_size_tuple
     )
     
     start_epoch = 0

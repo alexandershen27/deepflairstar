@@ -41,7 +41,7 @@ class DeepFLAIRLightningModule(pl.LightningModule):
         )
         
         self.inferer = SlidingWindowInferer(
-            roi_size=patch_size,
+            roi_size=tuple(patch_size), # Force tuple for indexing stability
             sw_batch_size=4,
             overlap=0.25,
             mode="gaussian"
@@ -57,10 +57,11 @@ class DeepFLAIRLightningModule(pl.LightningModule):
         y_hat = self.model(x)
         loss, metrics = self.loss_fn(y_hat, y)
         
-        self.log("train_loss", loss, prog_bar=True, on_step=True, on_epoch=True, sync_dist=True)
-        self.log("train_l1", metrics["l1"], sync_dist=True)
-        self.log("train_ssim_loss", metrics["ssim_loss"], sync_dist=True)
-        self.log("train_grad_loss", metrics["grad_loss"], sync_dist=True)
+        bs = x.shape[0]
+        self.log("train_loss", loss, prog_bar=True, on_step=True, on_epoch=True, sync_dist=True, batch_size=bs)
+        self.log("train_l1", metrics["l1"], sync_dist=True, batch_size=bs)
+        self.log("train_ssim_loss", metrics["ssim_loss"], sync_dist=True, batch_size=bs)
+        self.log("train_grad_loss", metrics["grad_loss"], sync_dist=True, batch_size=bs)
             
         return loss
 
@@ -69,10 +70,11 @@ class DeepFLAIRLightningModule(pl.LightningModule):
         y_hat = self.inferer(x, self.model)
         loss, metrics = self.loss_fn(y_hat, y)
         
-        self.log("val_loss", loss, prog_bar=True, sync_dist=True)
-        self.log("val_l1", metrics["l1"], sync_dist=True)
-        self.log("val_ssim_loss", metrics["ssim_loss"], sync_dist=True)
-        self.log("val_grad_loss", metrics["grad_loss"], sync_dist=True)
+        bs = x.shape[0]
+        self.log("val_loss", loss, prog_bar=True, sync_dist=True, batch_size=bs)
+        self.log("val_l1", metrics["l1"], sync_dist=True, batch_size=bs)
+        self.log("val_ssim_loss", metrics["ssim_loss"], sync_dist=True, batch_size=bs)
+        self.log("val_grad_loss", metrics["grad_loss"], sync_dist=True, batch_size=bs)
             
         if batch_idx == 0:
             self._log_images(x, y, y_hat, "val")
