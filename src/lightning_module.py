@@ -67,6 +67,9 @@ class DeepFLAIRLightningModule(pl.LightningModule):
         return loss
 
     def _log_images(self, x, y, y_hat, stage):
+        if not self.trainer.is_global_zero:
+            return
+            
         # Extract central slice
         d_idx = x.shape[2] // 2
         lbl = y[0, 0, d_idx].detach().cpu().numpy()
