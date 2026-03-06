@@ -17,5 +17,6 @@ __pycache__/
 .ipynb_checkpoints/
 
 # Project Specific
+tests/
 tools/
 .vscode/
