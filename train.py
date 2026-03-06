@@ -8,7 +8,7 @@ from pytorch_lightning.callbacks import ModelCheckpoint, LearningRateMonitor
 from src.data import DeepFLAIRDataModule
 from src.lightning_module import DeepFLAIRLightningModule
 
-# 1. Callbacks for continuity and metrics
+# Callback to force the starting epoch for manual fine-tuning
 class ResumeEpochCallback(pl.Callback):
     def __init__(self, start_epoch):
         self.start_epoch = start_epoch
@@ -16,19 +16,6 @@ class ResumeEpochCallback(pl.Callback):
         print(f"--- CALLBACK: Forcing Trainer state to Epoch {self.start_epoch} ---")
         trainer.fit_loop.epoch_progress.current.completed = self.start_epoch
         trainer.fit_loop.epoch_progress.current.processed = self.start_epoch
-
-# 2. Callback to safely start system metrics logging in DDP mode
-class SystemMetricsCallback(pl.Callback):
-    def on_train_start(self, trainer, pl_module):
-        if trainer.is_global_zero:
-            try:
-                import mlflow
-                ml_logger = next((l for l in trainer.loggers if isinstance(l, MLFlowLogger)), None)
-                if ml_logger:
-                    print(f"--- SYSTEM METRICS: Starting monitor for Run {ml_logger.run_id} ---")
-                    os.environ["MLFLOW_ENABLE_SYSTEM_METRICS_LOGGING"] = "true"
-                    mlflow.enable_system_metrics_logging()
-            except: pass
 
 def main(args):
     # 0. Reproducibility
@@ -47,7 +34,7 @@ def main(args):
     
     # 2. LightningModule
     model = DeepFLAIRLightningModule(
-        model_type=args.model_type, # Now dynamic
+        model_type=args.model_type,
         base_channels=args.base_channels,
         lr=args.lr,
         beta1=args.beta1,
@@ -71,7 +58,7 @@ def main(args):
             name = k
             if name.startswith('model.'): name = name.replace('model.', '', 1)
             if name.startswith('module.'): name = name.replace('module.', '', 1)
-            if name.startswith('model.'): name = name.replace('model.', '', 1) # Double-check prefix
+            if name.startswith('model.'): name = name.replace('model.', '', 1)
             new_state_dict[name] = v
             
         model.model.load_state_dict(new_state_dict, strict=False)
@@ -81,16 +68,9 @@ def main(args):
     os.makedirs(os.path.join(log_dir, "models"), exist_ok=True)
     os.makedirs(log_dir, exist_ok=True)
     
-    try:
-        import mlflow
-        mlflow.set_tracking_uri(f"file:{log_dir}")
-        mlflow.set_experiment("DeepFLAIR_Star")
-    except:
-        pass
-
     tb_logger = TensorBoardLogger("logs", name="deepflair_tb")
     ml_logger = MLFlowLogger(
-        experiment_name="DeepFLAIR_Star", 
+        experiment_name=f"DeepFLAIR_{args.model_type}", 
         save_dir=log_dir,
         log_model=True
     )
@@ -106,7 +86,7 @@ def main(args):
     )
     lr_monitor = LearningRateMonitor(logging_interval="step")
     
-    callbacks = [checkpoint_callback, lr_monitor, SystemMetricsCallback()]
+    callbacks = [checkpoint_callback, lr_monitor]
     if start_epoch > 0:
         callbacks.append(ResumeEpochCallback(start_epoch=start_epoch))
     

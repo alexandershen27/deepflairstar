@@ -54,11 +54,11 @@ class DeepFLAIRNet(nn.Module):
         self.up1 = nn.ConvTranspose3d(base_channels * 2, base_channels, kernel_size=2, stride=2)
         self.dec1 = DoubleConvBlock(base_channels * 2, base_channels)
         
-        # Final projection: Additional block B + 1x1x1 Conv + ReLU
+        # Final projection: Additional block B + 1x1x1 Conv + Sigmoid
         self.final_conv = nn.Sequential(
             DoubleConvBlock(base_channels, base_channels),
             nn.Conv3d(base_channels, out_channels, kernel_size=1),
-            nn.ReLU(inplace=False)
+            nn.Sigmoid() # Constrains to [0, 1] for target parity
         )
 
         # He Initialization for ReLU stability

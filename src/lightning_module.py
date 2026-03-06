@@ -25,7 +25,6 @@ class DeepFLAIRLightningModule(pl.LightningModule):
         self.save_hyperparameters()
         
         if model_type == "unetr":
-            # Feature size in UNETR acts like base_channels
             self.model = DeepFLAIRUNETR(
                 img_size=patch_size,
                 in_channels=1,
@@ -59,8 +58,9 @@ class DeepFLAIRLightningModule(pl.LightningModule):
         loss, metrics = self.loss_fn(y_hat, y)
         
         self.log("train_loss", loss, prog_bar=True, on_step=True, on_epoch=True, sync_dist=True)
-        for name, val in metrics.items():
-            self.log(f"train_{name}", val, sync_dist=True)
+        self.log("train_l1", metrics["l1"], sync_dist=True)
+        self.log("train_ssim_loss", metrics["ssim_loss"], sync_dist=True)
+        self.log("train_grad_loss", metrics["grad_loss"], sync_dist=True)
             
         return loss
 
@@ -70,8 +70,9 @@ class DeepFLAIRLightningModule(pl.LightningModule):
         loss, metrics = self.loss_fn(y_hat, y)
         
         self.log("val_loss", loss, prog_bar=True, sync_dist=True)
-        for name, val in metrics.items():
-            self.log(f"val_{name}", val, sync_dist=True)
+        self.log("val_l1", metrics["l1"], sync_dist=True)
+        self.log("val_ssim_loss", metrics["ssim_loss"], sync_dist=True)
+        self.log("val_grad_loss", metrics["grad_loss"], sync_dist=True)
             
         if batch_idx == 0:
             self._log_images(x, y, y_hat, "val")
@@ -82,55 +83,47 @@ class DeepFLAIRLightningModule(pl.LightningModule):
         if not self.trainer.is_global_zero:
             return
             
-        # Extract central slice
-        d_idx = x.shape[2] // 2
-        lbl = y[0, 0, d_idx].detach().cpu().numpy()
-        pred = y_hat[0, 0, d_idx].detach().cpu().numpy()
+        # x shape: [B, C, D, H, W]
+        img_vol = x[0, 0].detach().cpu().numpy()
+        lbl_vol = y[0, 0].detach().cpu().numpy()
+        pred_vol = y_hat[0, 0].detach().cpu().numpy()
         
-        # Create side-by-side plot: Target | Prediction
-        fig, axes = plt.subplots(1, 2, figsize=(12, 6))
-        axes[0].imshow(lbl, cmap='gray'); axes[0].set_title("Target (FLAIR*)")
-        axes[1].imshow(pred, cmap='gray'); axes[1].set_title(f"Prediction (Epoch {self.current_epoch:03d})")
-        for ax in axes: ax.axis('off')
+        # Center indices for 3 planes
+        c = [s // 2 for s in img_vol.shape]
+        
+        # Views: Axial (D), Sagittal (H), Coronal (W)
+        views = [
+            (img_vol[c[0], :, :], lbl_vol[c[0], :, :], pred_vol[c[0], :, :], "Axial"),
+            (img_vol[:, c[1], :], lbl_vol[:, c[1], :], pred_vol[:, c[1], :], "Sagittal"),
+            (img_vol[:, :, c[2]], lbl_vol[:, :, c[2]], pred_vol[:, :, c[2]], "Coronal")
+        ]
+        
+        fig, axes = plt.subplots(3, 3, figsize=(15, 15))
+        
+        for i, (img, lbl, pred, title) in enumerate(views):
+            axes[i, 0].imshow(img, cmap='gray'); axes[i, 0].set_title(f"Input {title}")
+            axes[i, 1].imshow(lbl, cmap='gray'); axes[i, 1].set_title(f"Target {title}")
+            axes[i, 2].imshow(pred, cmap='gray'); axes[i, 2].set_title(f"Pred {title} (E{self.current_epoch:03d})")
+            for ax in axes[i]: ax.axis('off')
+            
         plt.tight_layout()
         
-        # 1. Save to disk with zero-padded epoch name
-        epoch_path = f"vis/epoch_{self.current_epoch:03d}_{stage}.png"
-        pred_only_path = f"vis/epoch_{self.current_epoch:03d}_pred.png"
-        
+        epoch_path = f"vis/epoch_{self.current_epoch:03d}_{stage}_3view.png"
         plt.savefig(epoch_path)
-        
-        # Save just the prediction for the gallery
         plt.close(fig)
-        plt.figure(figsize=(6, 6))
-        plt.imshow(pred, cmap='gray')
-        plt.axis('off')
-        plt.title(f"Prediction Epoch {self.current_epoch:03d}")
-        plt.savefig(pred_only_path)
-        plt.close()
         
-        # 2. Log to MLflow if available
+        # Log 3-view matrix to MLflow
         for logger in self.loggers:
             if hasattr(logger, "log_image") and not hasattr(logger, "experiment"):
                 try:
-                    logger.log_image(key=f"{stage}_comparison", image=epoch_path)
-                    logger.log_image(key="gallery_prediction", image=pred_only_path)
-                except:
-                    pass
-            elif hasattr(logger, "experiment"):
-                if hasattr(logger.experiment, "add_image"):
-                    combined = np.concatenate([lbl, pred], axis=1)
-                    logger.experiment.add_image(f"{stage}_epoch_{self.current_epoch:03d}", combined[np.newaxis, ...], self.global_step)
-                elif hasattr(logger.experiment, "log_artifact"):
-                    run_id = logger.run_id if hasattr(logger, "run_id") else None
-                    if run_id:
-                        logger.experiment.log_artifact(run_id=run_id, local_path=epoch_path, artifact_path="val_visualizations")
-                        logger.experiment.log_artifact(run_id=run_id, local_path=pred_only_path, artifact_path="prediction_gallery")
-                    else:
-                        logger.experiment.log_artifact(local_path=epoch_path, artifact_path="val_visualizations")
-                        logger.experiment.log_artifact(local_path=pred_only_path, artifact_path="prediction_gallery")
-
-        plt.close(fig)
+                    logger.log_image(key=f"{stage}_3view", image=epoch_path)
+                except: pass
+            elif hasattr(logger, "experiment") and hasattr(logger.experiment, "log_artifact"):
+                run_id = logger.run_id if hasattr(logger, "run_id") else None
+                if run_id:
+                    logger.experiment.log_artifact(run_id=run_id, local_path=epoch_path, artifact_path="visualizations")
+                else:
+                    logger.experiment.log_artifact(local_path=epoch_path, artifact_path="visualizations")
 
     def configure_optimizers(self):
         optimizer = torch.optim.Adam(
