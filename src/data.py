@@ -80,18 +80,23 @@ class DeepFLAIRDataModule(pl.LightningDataModule):
             base_train_ds = self._get_base_dataset(train_files, self.get_volume_transforms())
             
             # 2. Grid Iterator with 0.5 overlap
+            # All spatial logic lives here in your version of MONAI
             patch_iter = PatchIter(
                 patch_size=self.patch_size, 
                 start_pos=(0, 0, 0),
-                overlap=0.5
+                overlap=0.5 # 32-voxel stride
             )
             
             # 3. GridPatchDataset
+            # Pass only the iterator to avoid 'multiple values for overlap' conflict
             self.train_ds = GridPatchDataset(
                 data=base_train_ds,
                 patch_iter=patch_iter,
                 with_coordinates=False
             )
+            
+            # 4. Stochastic Augmentation
+            self.train_ds = Dataset(data=self.train_ds, transform=self.get_patch_transforms())
             
             self.val_ds = self._get_base_dataset(val_files, self.get_volume_transforms())
         
