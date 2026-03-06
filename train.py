@@ -99,6 +99,8 @@ def main(args):
         callbacks=callbacks,
         log_every_n_steps=1,
         precision="16-mixed" if args.devices != "cpu" else 32,
+        gradient_clip_val=1.0, 
+        gradient_clip_algorithm="norm", # Rescales the whole vector, better for 3D CNNs
         fast_dev_run=args.fast_dev_run,
         limit_train_batches=args.limit_train_batches if args.limit_train_batches > 0 else None,
         limit_val_batches=args.limit_val_batches if args.limit_val_batches > 0 else None,
