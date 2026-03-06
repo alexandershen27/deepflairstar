@@ -15,3 +15,7 @@ __pycache__/
 .env
 .pytest_cache/
 .ipynb_checkpoints/
+
+# Project Specific
+tools/
+.vscode/
