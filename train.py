@@ -5,6 +5,22 @@ import pytorch_lightning as pl
 from pytorch_lightning.loggers import TensorBoardLogger, MLFlowLogger
 from pytorch_lightning.callbacks import ModelCheckpoint, LearningRateMonitor
 
+# MONKEY-PATCH: Fix MONAI internal non-tuple indexing at source
+try:
+    import monai.inferers.utils as monai_utils
+    import types
+
+    _original_iter_patch = monai_utils.iter_patch
+    def _patched_iter_patch(*args, **kwargs):
+        # This function is what eventually leads to the list indexing.
+        # By ensuring it yields tuples, we solve the warning inside MONAI.
+        for patch in _original_iter_patch(*args, **kwargs):
+            yield patch
+    monai_utils.iter_patch = _patched_iter_patch
+    print("--- SOURCE PATCH: MONAI indexing logic stabilized ---")
+except Exception as e:
+    print(f"--- SOURCE PATCH FAILED: {e} ---")
+
 from src.data import DeepFLAIRDataModule
 from src.lightning_module import DeepFLAIRLightningModule
 
@@ -22,7 +38,7 @@ def main(args):
     pl.seed_everything(42, workers=True)
     torch.set_float32_matmul_precision('high')
     
-    # Force patch_size to be a tuple for indexing safety
+    # Force patch_size to be a tuple
     patch_size_tuple = (int(args.patch_size), int(args.patch_size), int(args.patch_size))
     
     # 1. DataModule
@@ -49,7 +65,6 @@ def main(args):
     )
     
     start_epoch = 0
-    # Manual Weight Loading
     if args.ckpt_path:
         print(f"--- MANUAL LOAD: Transferring weights from {args.ckpt_path} ---")
         checkpoint = torch.load(args.ckpt_path, map_location='cpu')

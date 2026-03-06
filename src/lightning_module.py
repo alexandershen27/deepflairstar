@@ -40,10 +40,11 @@ class DeepFLAIRLightningModule(pl.LightningModule):
             grad_weight=grad_weight
         )
         
+        # Force overlap to be a tuple to potentially help MONAI internal math
         self.inferer = SlidingWindowInferer(
-            roi_size=tuple(patch_size), # Force tuple for indexing stability
+            roi_size=tuple(patch_size),
             sw_batch_size=4,
-            overlap=0.25,
+            overlap=(0.25, 0.25, 0.25),
             mode="gaussian"
         )
 
@@ -85,15 +86,12 @@ class DeepFLAIRLightningModule(pl.LightningModule):
         if not self.trainer.is_global_zero:
             return
             
-        # x shape: [B, C, D, H, W]
         img_vol = x[0, 0].detach().cpu().numpy()
         lbl_vol = y[0, 0].detach().cpu().numpy()
         pred_vol = y_hat[0, 0].detach().cpu().numpy()
         
-        # Center indices for 3 planes
         c = [s // 2 for s in img_vol.shape]
         
-        # Views: Axial (D), Sagittal (H), Coronal (W)
         views = [
             (img_vol[c[0], :, :], lbl_vol[c[0], :, :], pred_vol[c[0], :, :], "Axial"),
             (img_vol[:, c[1], :], lbl_vol[:, c[1], :], pred_vol[:, c[1], :], "Sagittal"),
@@ -101,7 +99,6 @@ class DeepFLAIRLightningModule(pl.LightningModule):
         ]
         
         fig, axes = plt.subplots(3, 3, figsize=(15, 15))
-        
         for i, (img, lbl, pred, title) in enumerate(views):
             axes[i, 0].imshow(img, cmap='gray'); axes[i, 0].set_title(f"Input {title}")
             axes[i, 1].imshow(lbl, cmap='gray'); axes[i, 1].set_title(f"Target {title}")
@@ -114,7 +111,6 @@ class DeepFLAIRLightningModule(pl.LightningModule):
         plt.savefig(epoch_path)
         plt.close(fig)
         
-        # Log 3-view matrix to MLflow
         for logger in self.loggers:
             if hasattr(logger, "log_image") and not hasattr(logger, "experiment"):
                 try:
