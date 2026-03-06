@@ -23,7 +23,7 @@ class DeepFLAIRManualGridDataset(TorchDataset):
     """
     Manual Grid Tiling Dataset.
     Calculates coordinates for 64^3 patches with 50% overlap.
-    Filters out patches that are pure background (black air).
+    Full comprehensive grid coverage.
     """
     def __init__(self, base_dataset, patch_size=(64, 64, 64), volume_size=(320, 384, 320), transform=None):
         self.base_dataset = base_dataset
@@ -33,30 +33,19 @@ class DeepFLAIRManualGridDataset(TorchDataset):
         self.stride = self.patch_size // 2
         
         # 1. Pre-calculate the grid coordinates
-        raw_coords = []
+        self.coords = []
         for z in range(0, self.volume_size[0] - self.patch_size[0] + 1, self.stride[0]):
             for y in range(0, self.volume_size[1] - self.patch_size[1] + 1, self.stride[1]):
                 for x in range(0, self.volume_size[2] - self.patch_size[2] + 1, self.stride[2]):
-                    raw_coords.append((z, y, x))
+                    self.coords.append((z, y, x))
         
-        # 2. Build the index map, FILTERING out pure background patches
+        # 2. Build the full index map (no filtering)
         self.index_map = []
-        self.coords = raw_coords
-        dz, dy, dx = self.patch_size
-        
-        print("--- MANUAL GRID: Filtering background patches (this may take a minute)... ---")
         for sub_idx in range(len(self.base_dataset)):
-            # Load the volume once to check its content
-            volume_data = self.base_dataset[sub_idx]
-            label_data = volume_data["label"]
-            
-            for coord_idx, (z, y, x) in enumerate(self.coords):
-                # Check if the patch has any signal (Max > 0.05 to avoid scanning low-level noise)
-                patch_max = label_data[0, z:z+dz, y:y+dy, x:x+dx].max()
-                if patch_max > 0.01:
-                    self.index_map.append((sub_idx, coord_idx))
+            for coord_idx in range(len(self.coords)):
+                self.index_map.append((sub_idx, coord_idx))
                 
-        print(f"--- FILTER COMPLETE: Kept {len(self.index_map)} patches (Discarded ~{len(self.base_dataset)*len(raw_coords) - len(self.index_map)} black tiles) ---")
+        print(f"--- MANUAL GRID: Created {len(self.index_map)} total tiles across {len(self.base_dataset)} subjects ---")
 
     def __len__(self):
         return len(self.index_map)
@@ -136,16 +125,13 @@ class DeepFLAIRDataModule(pl.LightningDataModule):
         )
 
         if stage == "fit" or stage is None:
-            # 1. Base volumes
             base_train_ds = self._get_base_dataset(train_files, self.get_volume_transforms())
-            # 2. Manual Grid with Filtering
             self.train_ds = DeepFLAIRManualGridDataset(
                 base_dataset=base_train_ds,
                 patch_size=self.patch_size,
                 volume_size=self.padding_size,
                 transform=self.get_patch_transforms()
             )
-            # 3. Validation (Full volume)
             self.val_ds = self._get_base_dataset(val_files, self.get_volume_transforms())
         
         if stage == "test" or stage is None:
