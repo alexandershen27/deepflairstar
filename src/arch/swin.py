@@ -13,14 +13,19 @@ class DeepFLAIRSwin(nn.Module):
     ):
         super().__init__()
         
-        self.model = SwinUNETR(
+        # Core Swin-UNETR model with BatchNorm per user requirement
+        self.swin = SwinUNETR(
             in_channels=in_channels,
             out_channels=out_channels,
             feature_size=feature_size,
             use_checkpoint=use_checkpoint,
-            norm_name="instance",
+            norm_name="batch",
             spatial_dims=3,
         )
+        
+        # Final Sigmoid projection to constrain output to [0, 1]
+        self.final_activation = nn.Sigmoid()
 
     def forward(self, x):
-        return self.model(x)
+        x = self.swin(x)
+        return self.final_activation(x)
