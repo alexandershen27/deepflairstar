@@ -76,23 +76,22 @@ class DeepFLAIRDataModule(pl.LightningDataModule):
             # 1. Base Volume Dataset
             base_train_ds = self._get_base_dataset(train_files, self.get_volume_transforms())
             
-            # 2. Grid Iterator with 0.5 overlap (Corrected API)
-            # In your version, overlap must be passed to PatchIter
+            # 2. Grid Iterator with 0.5 overlap
             patch_iter = PatchIter(
                 patch_size=self.patch_size, 
                 start_pos=(0, 0, 0),
                 overlap=0.5 # 32-voxel stride
             )
             
-            # 3. GridPatchDataset
+            # 3. GridPatchDataset (This is an IterableDataset)
             self.train_ds = GridPatchDataset(
                 data=base_train_ds,
                 patch_iter=patch_iter,
                 with_coordinates=False
             )
             
-            # 4. Stochastic Augmentation applied to the patches
-            self.train_ds = Dataset(data=self.train_ds, transform=self.get_patch_transforms())
+            # Note: We do NOT wrap self.train_ds in another Dataset() here
+            # because the DataLoader will handle the iteration.
             
             self.val_ds = self._get_base_dataset(val_files, self.get_volume_transforms())
         
@@ -116,24 +115,18 @@ class DeepFLAIRDataModule(pl.LightningDataModule):
             EnsureTyped(keys=["image", "label"]),
         ])
 
-    def get_patch_transforms(self):
-        return Compose([
-            RandFlipd(keys=["image", "label"], prob=0.5, spatial_axis=[0, 1]),
-            RandGaussianSmoothd(keys=["image"], sigma_x=(0.25, 1.5), sigma_y=(0.25, 1.5), sigma_z=(0.25, 1.5), prob=0.3),
-            EnsureTyped(keys=["image", "label"]),
-        ])
-
     def train_dataloader(self):
+        # IMPORTANT: shuffle=False is MANDATORY for IterableDatasets like GridPatchDataset
         return DataLoader(
             self.train_ds, 
             batch_size=self.batch_size, 
-            shuffle=True, 
+            shuffle=False, 
             num_workers=self.num_workers, 
-            pin_memory=True
+            pin_memory=self.pin_memory
         )
 
     def val_dataloader(self):
-        return DataLoader(self.val_ds, batch_size=1, num_workers=self.num_workers, pin_memory=True)
+        return DataLoader(self.val_ds, batch_size=1, num_workers=self.num_workers, pin_memory=self.pin_memory)
 
     def test_dataloader(self):
-        return DataLoader(self.test_ds, batch_size=1, num_workers=self.num_workers, pin_memory=True)
+        return DataLoader(self.test_ds, batch_size=1, num_workers=self.num_workers, pin_memory=self.pin_memory)
