@@ -5,6 +5,7 @@ import numpy as np
 import pytorch_lightning as pl
 from typing import Optional, Sequence, Dict, Any, List
 from sklearn.model_selection import train_test_split
+from torch.utils.data import Dataset as TorchDataset
 
 from monai.transforms import (
     Compose,
@@ -17,7 +18,23 @@ from monai.transforms import (
     RandCropByPosNegLabeld,
     EnsureTyped,
 )
-from monai.data import Dataset, CacheDataset, PersistentDataset, DataLoader, list_data_collate
+from monai.data import Dataset, CacheDataset, PersistentDataset, DataLoader
+
+class PatchFisherDataset(TorchDataset):
+    def __init__(self, base_dataset, samples_per_subject, transform=None):
+        self.base_dataset = base_dataset
+        self.samples = samples_per_subject
+        self.transform = transform
+
+    def __len__(self):
+        return len(self.base_dataset) * self.samples
+
+    def __getitem__(self, index):
+        subj_idx = index // self.samples
+        data = self.base_dataset[subj_idx]
+        if self.transform:
+            data = self.transform(data)
+        return data
 
 class DeepFLAIRDataModule(pl.LightningDataModule):
     def __init__(
@@ -77,11 +94,12 @@ class DeepFLAIRDataModule(pl.LightningDataModule):
         )
 
         if stage == "fit" or stage is None:
-            self.train_ds = self._get_base_dataset(train_files, self.get_train_transforms())
-            self.val_ds = self._get_base_dataset(val_files, self.get_val_transforms())
+            base_train = self._get_base_dataset(train_files, self.get_volume_transforms())
+            self.train_ds = PatchFisherDataset(base_train, self.num_samples, self.get_patch_transforms())
+            self.val_ds = self._get_base_dataset(val_files, self.get_volume_transforms())
         
         if stage == "test" or stage is None:
-            self.test_ds = self._get_base_dataset(test_files, self.get_val_transforms())
+            self.test_ds = self._get_base_dataset(test_files, self.get_volume_transforms())
 
     def _get_base_dataset(self, files, transforms):
         if self.cache_dir and self.cache_dir.lower() != "none":
@@ -91,44 +109,33 @@ class DeepFLAIRDataModule(pl.LightningDataModule):
             return CacheDataset(data=files, transform=transforms, cache_rate=self.cache_rate, num_workers=self.num_workers)
         return Dataset(data=files, transform=transforms)
 
-    def get_train_transforms(self):
+    def get_volume_transforms(self):
         return Compose([
             LoadImaged(keys=["image", "label"]),
             EnsureChannelFirstd(keys=["image", "label"]),
             ScaleIntensityd(keys=["image", "label"], minv=0.0, maxv=1.0),
             SpatialPadd(keys=["image", "label"], spatial_size=self.padding_size),
+            EnsureTyped(keys=["image", "label"]),
+        ])
+
+    def get_patch_transforms(self):
+        return Compose([
             RandCropByPosNegLabeld(
                 keys=["image", "label"],
                 label_key="label",
                 spatial_size=self.patch_size,
                 pos=1, neg=0,
-                num_samples=self.num_samples,
+                num_samples=1,
                 image_key="image",
-                image_threshold=0.03, # Optimized to filter background noise
+                image_threshold=0.03,
             ),
             RandFlipd(keys=["image", "label"], prob=0.5, spatial_axis=[0, 1]),
             RandGaussianSmoothd(keys=["image"], sigma_x=(0.25, 1.5), sigma_y=(0.25, 1.5), sigma_z=(0.25, 1.5), prob=0.3),
             EnsureTyped(keys=["image", "label"]),
         ])
 
-    def get_val_transforms(self):
-        return Compose([
-            LoadImaged(keys=["image", "label"]),
-            EnsureChannelFirstd(keys=["image", "label"]),
-            ScaleIntensityd(keys=["image", "label"], minv=0.0, maxv=1.0),
-            SpatialPadd(keys=["image", "label"], spatial_size=self.padding_size),
-            EnsureTyped(keys=["image", "label"]),
-        ])
-
     def train_dataloader(self):
-        return DataLoader(
-            self.train_ds, 
-            batch_size=self.batch_size, 
-            shuffle=True, 
-            num_workers=self.num_workers, 
-            pin_memory=self.pin_memory,
-            collate_fn=list_data_collate # Mandatory for internal num_samples
-        )
+        return DataLoader(self.train_ds, batch_size=self.batch_size, shuffle=True, num_workers=self.num_workers, pin_memory=self.pin_memory)
 
     def val_dataloader(self):
         return DataLoader(self.val_ds, batch_size=1, num_workers=self.num_workers, pin_memory=self.pin_memory)
