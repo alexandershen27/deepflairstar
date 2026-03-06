@@ -64,8 +64,6 @@ class DeepFLAIRDataModule(pl.LightningDataModule):
 
     def setup(self, stage: Optional[str] = None):
         valid_data = self._get_subject_list()
-        print(f"--- DATA CHECK: Found {len(valid_data)} valid subjects. ---")
-        
         if not valid_data:
             raise RuntimeError(f"No valid subject pairs found in {self.data_dir}")
 
@@ -77,7 +75,7 @@ class DeepFLAIRDataModule(pl.LightningDataModule):
         )
 
         if stage == "fit" or stage is None:
-            # Simple Strategy: Multiply the list to get multiple random patches per brain
+            # Multiply list for density
             expanded_train_files = train_files * self.num_samples
             self.train_ds = self._get_base_dataset(expanded_train_files, self.get_train_transforms())
             self.val_ds = self._get_base_dataset(val_files, self.get_volume_transforms())
