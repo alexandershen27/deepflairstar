@@ -5,22 +5,6 @@ import pytorch_lightning as pl
 from pytorch_lightning.loggers import TensorBoardLogger, MLFlowLogger
 from pytorch_lightning.callbacks import ModelCheckpoint, LearningRateMonitor
 
-# MONKEY-PATCH: Fix MONAI internal non-tuple indexing at source
-try:
-    import monai.inferers.utils as monai_utils
-    import types
-
-    _original_iter_patch = monai_utils.iter_patch
-    def _patched_iter_patch(*args, **kwargs):
-        # This function is what eventually leads to the list indexing.
-        # By ensuring it yields tuples, we solve the warning inside MONAI.
-        for patch in _original_iter_patch(*args, **kwargs):
-            yield patch
-    monai_utils.iter_patch = _patched_iter_patch
-    print("--- SOURCE PATCH: MONAI indexing logic stabilized ---")
-except Exception as e:
-    print(f"--- SOURCE PATCH FAILED: {e} ---")
-
 from src.data import DeepFLAIRDataModule
 from src.lightning_module import DeepFLAIRLightningModule
 
@@ -29,7 +13,6 @@ class ResumeEpochCallback(pl.Callback):
     def __init__(self, start_epoch):
         self.start_epoch = start_epoch
     def on_train_start(self, trainer, pl_module):
-        print(f"--- CALLBACK: Forcing Trainer state to Epoch {self.start_epoch} ---")
         trainer.fit_loop.epoch_progress.current.completed = self.start_epoch
         trainer.fit_loop.epoch_progress.current.processed = self.start_epoch
 
@@ -38,10 +21,8 @@ def main(args):
     pl.seed_everything(42, workers=True)
     torch.set_float32_matmul_precision('high')
     
-    # Force patch_size to be a tuple
-    patch_size_tuple = (int(args.patch_size), int(args.patch_size), int(args.patch_size))
-    
     # 1. DataModule
+    patch_size_tuple = (int(args.patch_size), int(args.patch_size), int(args.patch_size))
     dm = DeepFLAIRDataModule(
         data_dir=args.data_dir,
         batch_size=args.batch_size,
@@ -64,9 +45,9 @@ def main(args):
         patch_size=patch_size_tuple
     )
     
+    # Manual Weight Loading
     start_epoch = 0
     if args.ckpt_path:
-        print(f"--- MANUAL LOAD: Transferring weights from {args.ckpt_path} ---")
         checkpoint = torch.load(args.ckpt_path, map_location='cpu')
         state_dict = checkpoint['state_dict']
         start_epoch = checkpoint.get('epoch', 0)
@@ -130,7 +111,7 @@ def main(args):
 
 if __name__ == "__main__":
     parser = argparse.ArgumentParser()
-    parser.add_argument("--experiment_name", type=str, default=None, help="Custom name for this experiment")
+    parser.add_argument("--experiment_name", type=str, default=None)
     parser.add_argument("--data_dir", type=str, default="data")
     parser.add_argument("--model_type", type=str, default="unet", choices=["unet", "unetr"])
     parser.add_argument("--batch_size", type=int, default=4)
