@@ -34,14 +34,24 @@ def main(args):
         patch_size=(args.patch_size, args.patch_size, args.patch_size)
     )
     
-    # Manual Weight Loading (Resuming while allowing hyperparameter changes)
+    # --- MANUAL WEIGHT LOADING (Fine-tuning / Steering) ---
     if args.ckpt_path:
         print(f"--- MANUAL LOAD: Transferring weights from {args.ckpt_path} ---")
         checkpoint = torch.load(args.ckpt_path, map_location='cpu')
         state_dict = checkpoint['state_dict']
-        # Strip 'model.' prefix from keys
-        new_state_dict = {k.replace('model.', ''): v for k, v in state_dict.items() if k.startswith('model.')}
-        model.model.load_state_dict(new_state_dict)
+        
+        # Strip Lightning's 'model.' prefix
+        new_state_dict = {}
+        for k, v in state_dict.items():
+            name = k
+            if name.startswith('model.'):
+                name = name.replace('model.', '', 1)
+            new_state_dict[name] = v
+            
+        # Load into the inner model (DeepFLAIRNet)
+        # We use strict=False to be safe with DDP module prefixes
+        msg = model.model.load_state_dict(new_state_dict, strict=False)
+        print(f"--- LOAD STATUS: {msg} ---")
     
     # 3. Loggers
     os.makedirs("logs", exist_ok=True)
@@ -85,8 +95,8 @@ def main(args):
         limit_val_batches=args.limit_val_batches if args.limit_val_batches > 0 else None,
     )
     
-    # 6. Train (Resuming if ckpt_path is provided)
-    trainer.fit(model, datamodule=dm, ckpt_path=args.ckpt_path)
+    # 6. Train (Note: No ckpt_path passed here to prevent overwriting our manual load)
+    trainer.fit(model, datamodule=dm)
 
 if __name__ == "__main__":
     parser = argparse.ArgumentParser()
@@ -109,7 +119,7 @@ if __name__ == "__main__":
     parser.add_argument("--fast_dev_run", action="store_true", help="Run 1 full batch for train/val/test to catch bugs")
     parser.add_argument("--limit_train_batches", type=int, default=0, help="Limit number of train batches for testing")
     parser.add_argument("--limit_val_batches", type=int, default=0, help="Limit number of val batches for testing")
-    parser.add_argument("--ckpt_path", type=str, default=None, help="Path to checkpoint to resume from")
+    parser.add_argument("--ckpt_path", type=str, default=None, help="Path to checkpoint to resume weights from")
     
     args = parser.parse_args()
     main(args)
