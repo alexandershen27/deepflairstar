@@ -87,7 +87,7 @@ class DeepFLAIRDataModule(pl.LightningDataModule):
                     overlap=0.5,
                     pad_mode="constant"
                 ),
-                samples_per_image=None # Dictated by the grid
+                samples_per_image=1 # Fixes TypeError: must be an int
             )
             
             # 3. Final transform: Add stochastic augmentation to each grid patch
