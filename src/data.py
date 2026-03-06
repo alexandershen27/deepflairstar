@@ -32,6 +32,7 @@ class DeepFLAIRDataModule(pl.LightningDataModule):
         cache_rate: float = 0.0,
         cache_dir: str = "outputs/monai_cache",
         num_samples: int = 16,
+        pin_memory: bool = True,
     ):
         super().__init__()
         self.save_hyperparameters()
@@ -45,6 +46,8 @@ class DeepFLAIRDataModule(pl.LightningDataModule):
         self.random_state = random_state
         self.cache_rate = cache_rate
         self.cache_dir = cache_dir
+        self.num_samples = num_samples
+        self.pin_memory = pin_memory
 
     def _get_subject_list(self) -> List[Dict[str, str]]:
         subjects = sorted([
@@ -80,18 +83,15 @@ class DeepFLAIRDataModule(pl.LightningDataModule):
             patch_iter = PatchIter(
                 patch_size=self.patch_size, 
                 start_pos=(0, 0, 0),
-                overlap=0.5 # 32-voxel stride
+                overlap=0.5
             )
             
-            # 3. GridPatchDataset (This is an IterableDataset)
+            # 3. GridPatchDataset
             self.train_ds = GridPatchDataset(
                 data=base_train_ds,
                 patch_iter=patch_iter,
                 with_coordinates=False
             )
-            
-            # Note: We do NOT wrap self.train_ds in another Dataset() here
-            # because the DataLoader will handle the iteration.
             
             self.val_ds = self._get_base_dataset(val_files, self.get_volume_transforms())
         
@@ -115,8 +115,14 @@ class DeepFLAIRDataModule(pl.LightningDataModule):
             EnsureTyped(keys=["image", "label"]),
         ])
 
+    def get_patch_transforms(self):
+        return Compose([
+            RandFlipd(keys=["image", "label"], prob=0.5, spatial_axis=[0, 1]),
+            RandGaussianSmoothd(keys=["image"], sigma_x=(0.25, 1.5), sigma_y=(0.25, 1.5), sigma_z=(0.25, 1.5), prob=0.3),
+            EnsureTyped(keys=["image", "label"]),
+        ])
+
     def train_dataloader(self):
-        # IMPORTANT: shuffle=False is MANDATORY for IterableDatasets like GridPatchDataset
         return DataLoader(
             self.train_ds, 
             batch_size=self.batch_size, 
