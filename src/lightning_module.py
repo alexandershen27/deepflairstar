@@ -40,11 +40,11 @@ class DeepFLAIRLightningModule(pl.LightningModule):
             grad_weight=grad_weight
         )
         
-        # Force overlap to be a tuple to potentially help MONAI internal math
+        # Use 0.5 overlap (32-voxel stride) to match paper's spatial resolution
         self.inferer = SlidingWindowInferer(
             roi_size=tuple(patch_size),
             sw_batch_size=4,
-            overlap=(0.25, 0.25, 0.25),
+            overlap=(0.5, 0.5, 0.5), # Matched to paper stride
             mode="gaussian"
         )
 
