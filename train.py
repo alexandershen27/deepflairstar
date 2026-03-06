@@ -34,6 +34,12 @@ def main(args):
         patch_size=(args.patch_size, args.patch_size, args.patch_size)
     )
     
+    # Manual Weight Loading (Resuming while allowing hyperparameter changes)
+    if args.ckpt_path:
+        print(f"--- MANUAL LOAD: Transferring weights from {args.ckpt_path} ---")
+        checkpoint = torch.load(args.ckpt_path, map_location='cpu')
+        model.load_state_dict(checkpoint['state_dict'])
+    
     # 3. Loggers
     os.makedirs("logs", exist_ok=True)
     tb_logger = TensorBoardLogger("logs", name="deepflair_tb")
