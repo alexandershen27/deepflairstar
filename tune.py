@@ -26,9 +26,11 @@ def objective(trial, args):
         data_dir=args.data_dir,
         batch_size=args.batch_size,
         num_workers=args.num_workers // args.n_jobs,
-        num_samples=args.num_samples,
-        cache_rate=1.0
+        num_samples=8,
+        cache_rate=1.0,
+        pin_memory=False # Disable for parallel tuning stability
     )
+
     
     model = DeepFLAIRLightningModule(
         base_channels=args.base_channels,

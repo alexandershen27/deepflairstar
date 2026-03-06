@@ -33,6 +33,7 @@ class DeepFLAIRDataModule(pl.LightningDataModule):
         cache_rate: float = 0.0,
         cache_dir: str = "outputs/monai_cache",
         num_samples: int = 16,
+        pin_memory: bool = True, # Added toggle
     ):
         super().__init__()
         self.save_hyperparameters()
@@ -47,6 +48,7 @@ class DeepFLAIRDataModule(pl.LightningDataModule):
         self.cache_rate = cache_rate
         self.cache_dir = cache_dir
         self.num_samples = num_samples
+        self.pin_memory = pin_memory
 
     def _get_subject_list(self) -> List[Dict[str, str]]:
         subjects = sorted([
@@ -75,7 +77,6 @@ class DeepFLAIRDataModule(pl.LightningDataModule):
         )
 
         if stage == "fit" or stage is None:
-            # Multiply list for density
             expanded_train_files = train_files * self.num_samples
             self.train_ds = self._get_base_dataset(expanded_train_files, self.get_train_transforms())
             self.val_ds = self._get_base_dataset(val_files, self.get_volume_transforms())
@@ -121,10 +122,10 @@ class DeepFLAIRDataModule(pl.LightningDataModule):
         ])
 
     def train_dataloader(self):
-        return DataLoader(self.train_ds, batch_size=self.batch_size, shuffle=True, num_workers=self.num_workers, pin_memory=True)
+        return DataLoader(self.train_ds, batch_size=self.batch_size, shuffle=True, num_workers=self.num_workers, pin_memory=self.pin_memory)
 
     def val_dataloader(self):
-        return DataLoader(self.val_ds, batch_size=1, num_workers=self.num_workers, pin_memory=True)
+        return DataLoader(self.val_ds, batch_size=1, num_workers=self.num_workers, pin_memory=self.pin_memory)
 
     def test_dataloader(self):
-        return DataLoader(self.test_ds, batch_size=1, num_workers=self.num_workers, pin_memory=True)
+        return DataLoader(self.test_ds, batch_size=1, num_workers=self.num_workers, pin_memory=self.pin_memory)
