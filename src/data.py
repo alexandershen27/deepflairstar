@@ -11,7 +11,7 @@ from monai.transforms import (
     Compose,
     LoadImaged,
     EnsureChannelFirstd,
-    ScaleIntensityd,
+    ScaleIntensityRangePercentilesd, # Switched to Percentile for contrast
     SpatialPadd,
     RandFlipd,
     RandGaussianSmoothd,
@@ -30,7 +30,7 @@ class DeepFLAIRManualGridDataset(TorchDataset):
         self.volume_size = np.array(volume_size)
         self.transform = transform
         
-        # Calculate stride (50% overlap)
+        # Calculate stride (50% overlap = 32 voxel stride)
         self.stride = self.patch_size // 2
         
         # Pre-calculate all possible top-left corners for the grid
@@ -53,11 +53,8 @@ class DeepFLAIRManualGridDataset(TorchDataset):
 
     def __getitem__(self, idx):
         sub_idx, coord_idx = self.index_map[idx]
-        
-        # 1. Get the full volume from the base dataset (Cached or Persistent)
         volume_data = self.base_dataset[sub_idx]
         
-        # 2. Extract the patch manually
         z, y, x = self.coords[coord_idx]
         dz, dy, dx = self.patch_size
         
@@ -67,7 +64,6 @@ class DeepFLAIRManualGridDataset(TorchDataset):
             "subject_id": volume_data["subject_id"]
         }
         
-        # 3. Apply stochastic augmentations to the patch
         if self.transform:
             patch_item = self.transform(patch_item)
             
@@ -86,7 +82,7 @@ class DeepFLAIRDataModule(pl.LightningDataModule):
         random_state: int = 42,
         cache_rate: float = 0.0,
         cache_dir: str = "outputs/monai_cache",
-        num_samples: int = 16,
+        num_samples: int = 16, # Not used in manual grid but kept for parity
         pin_memory: bool = True,
     ):
         super().__init__()
@@ -130,7 +126,7 @@ class DeepFLAIRDataModule(pl.LightningDataModule):
         )
 
         if stage == "fit" or stage is None:
-            # 1. Base volumes
+            # 1. Base volumes (High-Contrast Normalization)
             base_train_ds = self._get_base_dataset(train_files, self.get_volume_transforms())
             # 2. Manual Grid
             self.train_ds = DeepFLAIRManualGridDataset(
@@ -154,15 +150,22 @@ class DeepFLAIRDataModule(pl.LightningDataModule):
         return Dataset(data=files, transform=transforms)
 
     def get_volume_transforms(self):
+        """Volume level: Loading and High-Contrast Normalization"""
         return Compose([
             LoadImaged(keys=["image", "label"]),
             EnsureChannelFirstd(keys=["image", "label"]),
-            ScaleIntensityd(keys=["image", "label"], minv=0.0, maxv=1.0),
+            ScaleIntensityRangePercentilesd(
+                keys=["image", "label"],
+                lower=0.5, upper=99.5,
+                b_min=0.0, b_max=1.0,
+                clip=True, relative=False
+            ),
             SpatialPadd(keys=["image", "label"], spatial_size=self.padding_size),
             EnsureTyped(keys=["image", "label"]),
         ])
 
     def get_patch_transforms(self):
+        """Patch level: Data Augmentation"""
         return Compose([
             RandFlipd(keys=["image", "label"], prob=0.5, spatial_axis=[0, 1]),
             RandGaussianSmoothd(keys=["image"], sigma_x=(0.25, 1.5), sigma_y=(0.25, 1.5), sigma_z=(0.25, 1.5), prob=0.3),
@@ -170,13 +173,7 @@ class DeepFLAIRDataModule(pl.LightningDataModule):
         ])
 
     def train_dataloader(self):
-        return DataLoader(
-            self.train_ds, 
-            batch_size=self.batch_size, 
-            shuffle=True, 
-            num_workers=self.num_workers, 
-            pin_memory=self.pin_memory
-        )
+        return DataLoader(self.train_ds, batch_size=self.batch_size, shuffle=True, num_workers=self.num_workers, pin_memory=self.pin_memory)
 
     def val_dataloader(self):
         return DataLoader(self.val_ds, batch_size=1, num_workers=self.num_workers, pin_memory=self.pin_memory)
