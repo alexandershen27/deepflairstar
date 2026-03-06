@@ -38,7 +38,10 @@ def main(args):
     if args.ckpt_path:
         print(f"--- MANUAL LOAD: Transferring weights from {args.ckpt_path} ---")
         checkpoint = torch.load(args.ckpt_path, map_location='cpu')
-        model.load_state_dict(checkpoint['state_dict'])
+        state_dict = checkpoint['state_dict']
+        # Strip 'model.' prefix from keys
+        new_state_dict = {k.replace('model.', ''): v for k, v in state_dict.items() if k.startswith('model.')}
+        model.model.load_state_dict(new_state_dict)
     
     # 3. Loggers
     os.makedirs("logs", exist_ok=True)
