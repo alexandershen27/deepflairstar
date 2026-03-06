@@ -5,7 +5,6 @@ import os
 import matplotlib.pyplot as plt
 from monai.inferers import SlidingWindowInferer
 from src.arch.unet import DeepFLAIRNet
-from src.arch.unetr import DeepFLAIRUNETR
 from src.arch.swin import DeepFLAIRSwin
 from src.losses import DeepFLAIRLoss
 
@@ -25,19 +24,12 @@ class DeepFLAIRLightningModule(pl.LightningModule):
         super().__init__()
         self.save_hyperparameters()
         
-        if model_type == "unetr":
-            self.model = DeepFLAIRUNETR(
-                img_size=patch_size,
-                in_channels=1,
-                out_channels=1,
-                feature_size=base_channels
-            )
-        elif model_type == "swin":
+        if model_type == "swin":
             self.model = DeepFLAIRSwin(
                 img_size=patch_size,
                 in_channels=1,
                 out_channels=1,
-                feature_size=24 # Standard robust start for Swin
+                feature_size=base_channels
             )
         else:
             self.model = DeepFLAIRNet(base_channels=base_channels)
@@ -118,7 +110,6 @@ class DeepFLAIRLightningModule(pl.LightningModule):
         plt.savefig(epoch_path)
         plt.close(fig)
         
-        # Log to MLflow
         for logger in self.loggers:
             if hasattr(logger, "experiment") and hasattr(logger.experiment, "log_artifact"):
                 run_id = logger.run_id if hasattr(logger, "run_id") else None

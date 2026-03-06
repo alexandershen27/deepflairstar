@@ -68,7 +68,7 @@ def main(args):
 if __name__ == "__main__":
     parser = argparse.ArgumentParser()
     parser.add_argument("--data_dir", type=str, default="data")
-    parser.add_argument("--model_type", type=str, default="unet", choices=["unet", "unetr", "swin"])
+    parser.add_argument("--model_type", type=str, default="unet", choices=["unet", "swin"])
     parser.add_argument("--batch_size", type=int, default=8)
     parser.add_argument("--patch_size", type=int, default=64)
     parser.add_argument("--base_channels", type=int, default=16)
