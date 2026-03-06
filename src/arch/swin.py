@@ -3,10 +3,6 @@ import torch.nn as nn
 from monai.networks.nets import SwinUNETR
 
 class DeepFLAIRSwin(nn.Module):
-    """
-    Optimized Swin UNETR for MRI Synthesis.
-    Using feature_size=24 for 24GB GPU balance.
-    """
     def __init__(
         self,
         img_size: tuple = (64, 64, 64),
@@ -17,17 +13,17 @@ class DeepFLAIRSwin(nn.Module):
     ):
         super().__init__()
         
-        # We wrap the MONAI implementation
+        # Using positional arguments for img_size, in_channels, out_channels
+        # This is the most stable way across MONAI 1.0 -> 1.3
         self.model = SwinUNETR(
-            img_size=img_size,
-            in_channels=in_channels,
-            out_channels=out_channels,
+            img_size,
+            in_channels,
+            out_channels,
             feature_size=feature_size,
             use_checkpoint=use_checkpoint,
-            norm_name="instance", # Swapped to instance for synthesis stability
+            norm_name="instance",
             spatial_dims=3,
         )
 
     def forward(self, x):
-        # Input: [B, C, D, H, W]
         return self.model(x)
