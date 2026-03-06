@@ -68,9 +68,11 @@ def main(args):
     os.makedirs(os.path.join(log_dir, "models"), exist_ok=True)
     os.makedirs(log_dir, exist_ok=True)
     
-    tb_logger = TensorBoardLogger("logs", name="deepflair_tb")
+    exp_name = args.experiment_name if args.experiment_name else f"DeepFLAIR_{args.model_type}"
+    
+    tb_logger = TensorBoardLogger("logs", name=exp_name)
     ml_logger = MLFlowLogger(
-        experiment_name=f"DeepFLAIR_{args.model_type}", 
+        experiment_name=exp_name, 
         save_dir=log_dir,
         log_model=True
     )
@@ -110,6 +112,7 @@ def main(args):
 
 if __name__ == "__main__":
     parser = argparse.ArgumentParser()
+    parser.add_argument("--experiment_name", type=str, default=None, help="Custom name for this experiment")
     parser.add_argument("--data_dir", type=str, default="data")
     parser.add_argument("--model_type", type=str, default="unet", choices=["unet", "unetr"])
     parser.add_argument("--batch_size", type=int, default=4)
