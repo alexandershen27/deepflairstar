@@ -15,9 +15,8 @@ from monai.transforms import (
     RandFlipd,
     RandGaussianSmoothd,
     EnsureTyped,
-    GridPatchd # For deterministic tiling
 )
-from monai.data import Dataset, CacheDataset, PersistentDataset, DataLoader, PatchDataset
+from monai.data import Dataset, CacheDataset, PersistentDataset, DataLoader, GridPatchDataset
 
 class DeepFLAIRDataModule(pl.LightningDataModule):
     def __init__(
@@ -32,7 +31,7 @@ class DeepFLAIRDataModule(pl.LightningDataModule):
         random_state: int = 42,
         cache_rate: float = 0.0,
         cache_dir: str = "outputs/monai_cache",
-        num_samples: int = 16, # Kept for CLI parity, though grid dictates count now
+        num_samples: int = 16, # Not used in grid mode but kept for CLI
     ):
         super().__init__()
         self.save_hyperparameters()
@@ -74,24 +73,18 @@ class DeepFLAIRDataModule(pl.LightningDataModule):
         )
 
         if stage == "fit" or stage is None:
-            # 1. Base Volume Dataset (Volume level Loading/Norm)
+            # 1. Base Volume Dataset
             base_train_ds = self._get_base_dataset(train_files, self.get_volume_transforms())
             
-            # 2. PatchDataset with Grid Sampler (Tiling)
-            # Overlap 0.5 on patch size 64 = Stride 32 (Matches paper exactly)
-            self.train_ds = PatchDataset(
+            # 2. GridPatchDataset (Tiling logic)
+            # This handles the 0.5 overlap / 32 stride internally
+            self.train_ds = GridPatchDataset(
                 data=base_train_ds,
-                patch_func=GridPatchd(
-                    keys=["image", "label"],
-                    patch_size=self.patch_size,
-                    overlap=0.5,
-                    pad_mode="constant"
-                ),
-                samples_per_image=1 # Fixes TypeError: must be an int
+                patch_size=self.patch_size,
+                start_pos=(0, 0, 0),
+                overlap=0.5,
+                with_coordinates=False
             )
-            
-            # 3. Final transform: Add stochastic augmentation to each grid patch
-            self.train_ds = Dataset(data=self.train_ds, transform=self.get_patch_transforms())
             
             self.val_ds = self._get_base_dataset(val_files, self.get_volume_transforms())
         
@@ -107,7 +100,6 @@ class DeepFLAIRDataModule(pl.LightningDataModule):
         return Dataset(data=files, transform=transforms)
 
     def get_volume_transforms(self):
-        """Volume level: Loading and Global Normalization"""
         return Compose([
             LoadImaged(keys=["image", "label"]),
             EnsureChannelFirstd(keys=["image", "label"]),
@@ -116,20 +108,11 @@ class DeepFLAIRDataModule(pl.LightningDataModule):
             EnsureTyped(keys=["image", "label"]),
         ])
 
-    def get_patch_transforms(self):
-        """Patch level: Final Augmentation and Typing"""
-        return Compose([
-            # Data Augmentation from paper: flipping and blurring applied to grid tiles
-            RandFlipd(keys=["image", "label"], prob=0.5, spatial_axis=[0, 1]),
-            RandGaussianSmoothd(keys=["image"], sigma_x=(0.25, 1.5), sigma_y=(0.25, 1.5), sigma_z=(0.25, 1.5), prob=0.3),
-            EnsureTyped(keys=["image", "label"]),
-        ])
-
     def train_dataloader(self):
         return DataLoader(
             self.train_ds, 
             batch_size=self.batch_size, 
-            shuffle=True, # Shuffle the grid patches for better learning
+            shuffle=False, # GridPatchDataset handles its own order
             num_workers=self.num_workers, 
             pin_memory=True
         )
