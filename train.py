@@ -76,8 +76,8 @@ def main(args):
         limit_val_batches=args.limit_val_batches if args.limit_val_batches > 0 else None,
     )
     
-    # 6. Train
-    trainer.fit(model, datamodule=dm)
+    # 6. Train (Resuming if ckpt_path is provided)
+    trainer.fit(model, datamodule=dm, ckpt_path=args.ckpt_path)
 
 if __name__ == "__main__":
     parser = argparse.ArgumentParser()
@@ -100,6 +100,7 @@ if __name__ == "__main__":
     parser.add_argument("--fast_dev_run", action="store_true", help="Run 1 full batch for train/val/test to catch bugs")
     parser.add_argument("--limit_train_batches", type=int, default=0, help="Limit number of train batches for testing")
     parser.add_argument("--limit_val_batches", type=int, default=0, help="Limit number of val batches for testing")
+    parser.add_argument("--ckpt_path", type=str, default=None, help="Path to checkpoint to resume from")
     
     args = parser.parse_args()
     main(args)
