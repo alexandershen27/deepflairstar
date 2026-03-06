@@ -40,12 +40,7 @@ def main(args):
         checkpoint = torch.load(args.ckpt_path, map_location='cpu')
         state_dict = checkpoint['state_dict']
         
-        # 1. Restore the Epoch counter
-        if 'epoch' in checkpoint:
-            model.current_epoch = checkpoint['epoch']
-            print(f"--- CONTINUITY: Setting start epoch to {model.current_epoch} ---")
-        
-        # 2. Strip Lightning's 'model.' prefix
+        # 1. Strip Lightning's 'model.' prefix
         new_state_dict = {}
         for k, v in state_dict.items():
             name = k
@@ -53,7 +48,7 @@ def main(args):
                 name = name.replace('model.', '', 1)
             new_state_dict[name] = v
             
-        # 3. Load into the inner model (DeepFLAIRNet)
+        # 2. Load into the inner model (DeepFLAIRNet)
         msg = model.model.load_state_dict(new_state_dict, strict=False)
         print(f"--- LOAD STATUS: {msg} ---")
     
@@ -106,6 +101,13 @@ def main(args):
         limit_val_batches=args.limit_val_batches if args.limit_val_batches > 0 else None,
     )
     
+    # Set the starting epoch if resuming manually
+    if args.ckpt_path:
+        checkpoint = torch.load(args.ckpt_path, map_location='cpu')
+        if 'epoch' in checkpoint:
+            trainer.fit_loop.epoch_progress.current.completed = checkpoint['epoch']
+            print(f"--- CONTINUITY: Setting start epoch to {checkpoint['epoch']} ---")
+
     # 6. Train (Note: No ckpt_path passed here to prevent overwriting our manual load)
     trainer.fit(model, datamodule=dm)
 
