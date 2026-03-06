@@ -8,7 +8,7 @@ from pytorch_lightning.callbacks import ModelCheckpoint, LearningRateMonitor
 from src.data import DeepFLAIRDataModule
 from src.lightning_module import DeepFLAIRLightningModule
 
-# 1. Callback to force the starting epoch for manual fine-tuning
+# 1. Callbacks for continuity and metrics
 class ResumeEpochCallback(pl.Callback):
     def __init__(self, start_epoch):
         self.start_epoch = start_epoch
@@ -47,6 +47,7 @@ def main(args):
     
     # 2. LightningModule
     model = DeepFLAIRLightningModule(
+        model_type=args.model_type, # Now dynamic
         base_channels=args.base_channels,
         lr=args.lr,
         beta1=args.beta1,
@@ -130,6 +131,7 @@ def main(args):
 if __name__ == "__main__":
     parser = argparse.ArgumentParser()
     parser.add_argument("--data_dir", type=str, default="data")
+    parser.add_argument("--model_type", type=str, default="unet", choices=["unet", "unetr"])
     parser.add_argument("--batch_size", type=int, default=4)
     parser.add_argument("--patch_size", type=int, default=64)
     parser.add_argument("--base_channels", type=int, default=16)

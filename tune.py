@@ -31,6 +31,7 @@ def objective(trial, args):
     )
     
     model = DeepFLAIRLightningModule(
+        model_type=args.model_type,
         base_channels=args.base_channels,
         lr=lr,
         ssim_weight=ssim_weight,
@@ -42,7 +43,6 @@ def objective(trial, args):
     log_dir = os.path.abspath("logs/mlflow")
     os.makedirs(os.path.join(log_dir, "models"), exist_ok=True)
     
-    # Force system metrics at the global level
     import mlflow
     mlflow.set_tracking_uri(f"file:{log_dir}")
     os.environ["MLFLOW_ENABLE_SYSTEM_METRICS_LOGGING"] = "true"
@@ -52,9 +52,9 @@ def objective(trial, args):
         pass
 
     ml_logger = pl.loggers.MLFlowLogger(
-        experiment_name="DeepFLAIR_Tuning", 
+        experiment_name=f"DeepFLAIR_Tuning_{args.model_type}", 
         save_dir=log_dir,
-        tags={"trial_number": str(trial.number), "gpu": str(devices)}
+        tags={"trial_number": str(trial.number), "gpu": str(devices), "model": args.model_type}
     )
 
     trainer = pl.Trainer(
@@ -75,6 +75,7 @@ def objective(trial, args):
 
 def main():
     parser = argparse.ArgumentParser()
+    parser.add_argument("--model_type", type=str, default="unet", choices=["unet", "unetr"])
     parser.add_argument("--n_trials", type=int, default=20)
     parser.add_argument("--n_jobs", type=int, default=4)
     parser.add_argument("--max_epochs", type=int, default=25)
@@ -84,6 +85,7 @@ def main():
     parser.add_argument("--patch_size", type=int, default=64)
     parser.add_argument("--num_workers", type=int, default=16)
     parser.add_argument("--num_samples", type=int, default=16)
+    parser.add_argument("--ckpt_path", type=str, default=None)
     args = parser.parse_args()
 
     log_dir = os.path.abspath("logs/mlflow")
@@ -94,7 +96,7 @@ def main():
 
     study = optuna.create_study(
         direction="minimize",
-        study_name="deepflair_tune",
+        study_name=f"deepflair_tune_{args.model_type}",
         storage="sqlite:///optuna.db",
         load_if_exists=True
     )

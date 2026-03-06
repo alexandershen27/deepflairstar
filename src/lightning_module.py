@@ -5,11 +5,13 @@ import os
 import matplotlib.pyplot as plt
 from monai.inferers import SlidingWindowInferer
 from src.arch.unet import DeepFLAIRNet
+from src.arch.unetr import DeepFLAIRUNETR
 from src.losses import DeepFLAIRLoss
 
 class DeepFLAIRLightningModule(pl.LightningModule):
     def __init__(
         self,
+        model_type: str = "unet",
         base_channels: int = 16,
         lr: float = 1e-4,
         beta1: float = 0.5,
@@ -22,7 +24,17 @@ class DeepFLAIRLightningModule(pl.LightningModule):
         super().__init__()
         self.save_hyperparameters()
         
-        self.model = DeepFLAIRNet(base_channels=base_channels)
+        if model_type == "unetr":
+            # Feature size in UNETR acts like base_channels
+            self.model = DeepFLAIRUNETR(
+                img_size=patch_size,
+                in_channels=1,
+                out_channels=1,
+                feature_size=base_channels
+            )
+        else:
+            self.model = DeepFLAIRNet(base_channels=base_channels)
+            
         self.loss_fn = DeepFLAIRLoss(
             mse_weight=mse_weight, 
             ssim_weight=ssim_weight, 
