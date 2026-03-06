@@ -4,25 +4,26 @@ from monai.networks.nets import SwinUNETR
 
 class DeepFLAIRSwin(nn.Module):
     """
-    Swin UNETR: 3D Transformer-based Synthesis.
-    Audited for MONAI 1.3+ compatibility.
+    Swin UNETR: Dynamic-size implementation.
+    Audited against server-specific MONAI signature.
     """
     def __init__(
         self,
-        img_size: tuple = (64, 64, 64),
+        img_size: tuple = (64, 64, 64), # Argument kept for class parity but unused in call
         in_channels: int = 1,
         out_channels: int = 1,
-        feature_size: int = 24,
+        feature_size: int = 24, 
         use_checkpoint: bool = False,
     ):
         super().__init__()
         
-        # We ensure feature_size is exactly 24 or 48 (MONAI gold standards)
-        # to guarantee compatibility with internal attention head math.
-        safe_feature_size = 24 if feature_size % 12 != 0 else feature_size
+        # Enforce divisible by 12 per MONAI requirement
+        safe_feature_size = feature_size if feature_size % 12 == 0 else 24
 
+        # Based on titan2 signature: 
+        # (self, in_channels, out_channels, patch_size=2, depths=(2,2,2,2), ...)
+        # Note: img_size is NOT part of the signature!
         self.model = SwinUNETR(
-            img_size=img_size,
             in_channels=in_channels,
             out_channels=out_channels,
             feature_size=safe_feature_size,
@@ -32,5 +33,4 @@ class DeepFLAIRSwin(nn.Module):
         )
 
     def forward(self, x):
-        # Input tensor shape: [B, 1, 64, 64, 64]
         return self.model(x)
