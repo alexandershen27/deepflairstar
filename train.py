@@ -13,6 +13,7 @@ class ResumeEpochCallback(pl.Callback):
     def __init__(self, start_epoch):
         self.start_epoch = start_epoch
     def on_train_start(self, trainer, pl_module):
+        print(f"--- CALLBACK: Forcing Trainer state to Epoch {self.start_epoch} ---")
         trainer.fit_loop.epoch_progress.current.completed = self.start_epoch
         trainer.fit_loop.epoch_progress.current.processed = self.start_epoch
 
@@ -21,8 +22,10 @@ def main(args):
     pl.seed_everything(42, workers=True)
     torch.set_float32_matmul_precision('high')
     
-    # 1. DataModule
+    # Force patch_size to be a tuple
     patch_size_tuple = (int(args.patch_size), int(args.patch_size), int(args.patch_size))
+    
+    # 1. DataModule
     dm = DeepFLAIRDataModule(
         data_dir=args.data_dir,
         batch_size=args.batch_size,
@@ -45,9 +48,9 @@ def main(args):
         patch_size=patch_size_tuple
     )
     
-    # Manual Weight Loading
     start_epoch = 0
     if args.ckpt_path:
+        print(f"--- MANUAL LOAD: Transferring weights from {args.ckpt_path} ---")
         checkpoint = torch.load(args.ckpt_path, map_location='cpu')
         state_dict = checkpoint['state_dict']
         start_epoch = checkpoint.get('epoch', 0)
