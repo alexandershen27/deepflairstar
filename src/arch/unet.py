@@ -5,16 +5,17 @@ from typing import Sequence, Optional, Union
 class ResidualBlock(nn.Module):
     """
     Standard block B from paper: 2x (Conv3D, BatchNorm3D, LeakyReLU)
+    Set inplace=False to avoid conflict with SyncBatchNorm in DDP mode.
     """
     def __init__(self, in_channels: int, out_channels: int):
         super().__init__()
         self.block = nn.Sequential(
             nn.Conv3d(in_channels, out_channels, kernel_size=3, padding=1),
             nn.BatchNorm3d(out_channels),
-            nn.LeakyReLU(inplace=True),
+            nn.LeakyReLU(inplace=False), # Changed to False for SyncBatchNorm stability
             nn.Conv3d(out_channels, out_channels, kernel_size=3, padding=1),
             nn.BatchNorm3d(out_channels),
-            nn.LeakyReLU(inplace=True)
+            nn.LeakyReLU(inplace=False)  # Changed to False for SyncBatchNorm stability
         )
 
     def forward(self, x):
@@ -57,7 +58,7 @@ class DeepFLAIRNet(nn.Module):
         self.final_conv = nn.Sequential(
             ResidualBlock(base_channels, base_channels),
             nn.Conv3d(base_channels, out_channels, kernel_size=1),
-            nn.ReLU(inplace=True)
+            nn.ReLU(inplace=False) # Changed to False for stability
         )
 
         # He Initialization for ReLU stability
