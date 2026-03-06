@@ -73,16 +73,24 @@ class DeepFLAIRDataModule(pl.LightningDataModule):
         )
 
         if stage == "fit" or stage is None:
+            # 1. Base Volume Dataset
             base_train_ds = self._get_base_dataset(train_files, self.get_volume_transforms())
             
-            # Use the newer PatchIter interface for GridPatchDataset
+            # 2. Grid Iterator with 0.5 overlap (32-voxel stride)
+            # PatchIter handles the logic of extracting the grid from the volumes
             patch_iter = PatchIter(patch_size=self.patch_size, start_pos=(0, 0, 0))
             
+            # 3. GridPatchDataset
+            # Note: We pass our overlap here
             self.train_ds = GridPatchDataset(
                 data=base_train_ds,
                 patch_iter=patch_iter,
+                overlap=0.5,
                 with_coordinates=False
             )
+            
+            # 4. Stochastic Augmentation applied to the patches
+            self.train_ds = Dataset(data=self.train_ds, transform=self.get_patch_transforms())
             
             self.val_ds = self._get_base_dataset(val_files, self.get_volume_transforms())
         
@@ -106,11 +114,18 @@ class DeepFLAIRDataModule(pl.LightningDataModule):
             EnsureTyped(keys=["image", "label"]),
         ])
 
+    def get_patch_transforms(self):
+        return Compose([
+            RandFlipd(keys=["image", "label"], prob=0.5, spatial_axis=[0, 1]),
+            RandGaussianSmoothd(keys=["image"], sigma_x=(0.25, 1.5), sigma_y=(0.25, 1.5), sigma_z=(0.25, 1.5), prob=0.3),
+            EnsureTyped(keys=["image", "label"]),
+        ])
+
     def train_dataloader(self):
         return DataLoader(
             self.train_ds, 
             batch_size=self.batch_size, 
-            shuffle=False, 
+            shuffle=True, # Now safe to shuffle the grid patches
             num_workers=self.num_workers, 
             pin_memory=True
         )
