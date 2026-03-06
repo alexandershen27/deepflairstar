@@ -58,21 +58,27 @@ def main(args):
         print(f"--- LOAD STATUS: {msg} ---")
     
     # 3. Loggers
+    log_dir = os.path.abspath("logs/mlflow")
     os.makedirs("logs", exist_ok=True)
+    
+    # Force global MLflow to use the same directory as the logger
+    try:
+        import mlflow
+        mlflow.set_tracking_uri(f"file:{log_dir}")
+        mlflow.set_experiment("DeepFLAIR_Star")
+        # Set environment variable before enabling
+        os.environ["MLFLOW_ENABLE_SYSTEM_METRICS_LOGGING"] = "true"
+        mlflow.enable_system_metrics_logging()
+        print(f"--- SYSTEM METRICS: Enabled (Target: {log_dir}) ---")
+    except Exception as e:
+        print(f"System metrics logging setup failed: {e}")
+
     tb_logger = TensorBoardLogger("logs", name="deepflair_tb")
     ml_logger = MLFlowLogger(
         experiment_name="DeepFLAIR_Star", 
-        save_dir="logs/mlflow",
+        save_dir=log_dir,
         log_model=True
     )
-    
-    # Enable system metrics (requires psutil and pynvml)
-    try:
-        import mlflow
-        mlflow.set_experiment("DeepFLAIR_Star")
-        mlflow.enable_system_metrics_logging()
-    except Exception as e:
-        print(f"System metrics logging not available: {e}")
     
     # 4. Callbacks
     checkpoint_callback = ModelCheckpoint(
