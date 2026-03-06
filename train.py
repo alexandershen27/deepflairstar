@@ -8,21 +8,22 @@ from pytorch_lightning.callbacks import ModelCheckpoint, LearningRateMonitor
 from src.data import DeepFLAIRDataModule
 from src.lightning_module import DeepFLAIRLightningModule
 
-# Callback to safely start system metrics logging in DDP mode
+# 1. Callback to force the starting epoch for manual fine-tuning
+class ResumeEpochCallback(pl.Callback):
+    def __init__(self, start_epoch):
+        self.start_epoch = start_epoch
+    def on_train_start(self, trainer, pl_module):
+        print(f"--- CALLBACK: Forcing Trainer state to Epoch {self.start_epoch} ---")
+        trainer.fit_loop.epoch_progress.current.completed = self.start_epoch
+        trainer.fit_loop.epoch_progress.current.processed = self.start_epoch
+
+# 2. Callback to safely start system metrics logging in DDP mode
 class SystemMetricsCallback(pl.Callback):
     def on_train_start(self, trainer, pl_module):
         if trainer.is_global_zero:
             try:
                 import mlflow
-                ml_logger = None
-                if isinstance(trainer.logger, list):
-                    for l in trainer.logger:
-                        if isinstance(l, MLFlowLogger):
-                            ml_logger = l
-                            break
-                elif isinstance(trainer.logger, MLFlowLogger):
-                    ml_logger = trainer.logger
-
+                ml_logger = next((l for l in trainer.loggers if isinstance(l, MLFlowLogger)), None)
                 if ml_logger:
                     print(f"--- SYSTEM METRICS: Starting monitor for Run {ml_logger.run_id} ---")
                     os.environ["MLFLOW_ENABLE_SYSTEM_METRICS_LOGGING"] = "true"
@@ -57,6 +58,23 @@ def main(args):
         patch_size=(args.patch_size, args.patch_size, args.patch_size)
     )
     
+    start_epoch = 0
+    # Manual Weight Loading
+    if args.ckpt_path:
+        print(f"--- MANUAL LOAD: Transferring weights from {args.ckpt_path} ---")
+        checkpoint = torch.load(args.ckpt_path, map_location='cpu')
+        state_dict = checkpoint['state_dict']
+        start_epoch = checkpoint.get('epoch', 0)
+        
+        new_state_dict = {}
+        for k, v in state_dict.items():
+            name = k
+            if name.startswith('model.'):
+                name = name.replace('model.', '', 1)
+            new_state_dict[name] = v
+            
+        model.model.load_state_dict(new_state_dict, strict=False)
+    
     # 3. Loggers
     log_dir = os.path.abspath("logs/mlflow")
     os.makedirs("logs", exist_ok=True)
@@ -87,6 +105,8 @@ def main(args):
     lr_monitor = LearningRateMonitor(logging_interval="step")
     
     callbacks = [checkpoint_callback, lr_monitor, SystemMetricsCallback()]
+    if start_epoch > 0:
+        callbacks.append(ResumeEpochCallback(start_epoch=start_epoch))
     
     # 5. Trainer
     trainer = pl.Trainer(
@@ -99,15 +119,12 @@ def main(args):
         callbacks=callbacks,
         log_every_n_steps=1,
         precision="16-mixed" if args.devices != "cpu" else 32,
-        gradient_clip_val=1.0, 
-        gradient_clip_algorithm="norm", # Rescales the whole vector, better for 3D CNNs
-        fast_dev_run=args.fast_dev_run,
-        limit_train_batches=args.limit_train_batches if args.limit_train_batches > 0 else None,
-        limit_val_batches=args.limit_val_batches if args.limit_val_batches > 0 else None,
+        gradient_clip_val=1.0,
+        gradient_clip_algorithm="norm"
     )
     
-    # 6. Train (Resuming handled naturally by ckpt_path if provided)
-    trainer.fit(model, datamodule=dm, ckpt_path=args.ckpt_path)
+    # 6. Train
+    trainer.fit(model, datamodule=dm)
 
 if __name__ == "__main__":
     parser = argparse.ArgumentParser()
