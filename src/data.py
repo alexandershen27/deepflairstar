@@ -76,16 +76,18 @@ class DeepFLAIRDataModule(pl.LightningDataModule):
             # 1. Base Volume Dataset
             base_train_ds = self._get_base_dataset(train_files, self.get_volume_transforms())
             
-            # 2. Grid Iterator with 0.5 overlap (32-voxel stride)
-            # PatchIter handles the logic of extracting the grid from the volumes
-            patch_iter = PatchIter(patch_size=self.patch_size, start_pos=(0, 0, 0))
+            # 2. Grid Iterator with 0.5 overlap (Corrected API)
+            # In your version, overlap must be passed to PatchIter
+            patch_iter = PatchIter(
+                patch_size=self.patch_size, 
+                start_pos=(0, 0, 0),
+                overlap=0.5 # 32-voxel stride
+            )
             
             # 3. GridPatchDataset
-            # Note: We pass our overlap here
             self.train_ds = GridPatchDataset(
                 data=base_train_ds,
                 patch_iter=patch_iter,
-                overlap=0.5,
                 with_coordinates=False
             )
             
@@ -125,7 +127,7 @@ class DeepFLAIRDataModule(pl.LightningDataModule):
         return DataLoader(
             self.train_ds, 
             batch_size=self.batch_size, 
-            shuffle=True, # Now safe to shuffle the grid patches
+            shuffle=True, 
             num_workers=self.num_workers, 
             pin_memory=True
         )
