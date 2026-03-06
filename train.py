@@ -34,13 +34,18 @@ def main(args):
         patch_size=(args.patch_size, args.patch_size, args.patch_size)
     )
     
-    # --- MANUAL WEIGHT LOADING (Fine-tuning / Steering) ---
+    # Manual Weight Loading (Resuming while allowing hyperparameter changes)
     if args.ckpt_path:
         print(f"--- MANUAL LOAD: Transferring weights from {args.ckpt_path} ---")
         checkpoint = torch.load(args.ckpt_path, map_location='cpu')
         state_dict = checkpoint['state_dict']
         
-        # Strip Lightning's 'model.' prefix
+        # 1. Restore the Epoch counter
+        if 'epoch' in checkpoint:
+            model.current_epoch = checkpoint['epoch']
+            print(f"--- CONTINUITY: Setting start epoch to {model.current_epoch} ---")
+        
+        # 2. Strip Lightning's 'model.' prefix
         new_state_dict = {}
         for k, v in state_dict.items():
             name = k
@@ -48,8 +53,7 @@ def main(args):
                 name = name.replace('model.', '', 1)
             new_state_dict[name] = v
             
-        # Load into the inner model (DeepFLAIRNet)
-        # We use strict=False to be safe with DDP module prefixes
+        # 3. Load into the inner model (DeepFLAIRNet)
         msg = model.model.load_state_dict(new_state_dict, strict=False)
         print(f"--- LOAD STATUS: {msg} ---")
     
@@ -74,9 +78,10 @@ def main(args):
     checkpoint_callback = ModelCheckpoint(
         monitor="val_loss",
         dirpath="outputs/checkpoints",
-        filename="deepflair-{epoch:02d}-{val_loss:.4f}",
-        save_top_k=3,
-        mode="min"
+        filename="deepflair-{epoch:03d}-{val_loss:.4f}",
+        save_top_k=10, # Increased from 3 to 10
+        mode="min",
+        save_last=True # Always keep the very latest
     )
     lr_monitor = LearningRateMonitor(logging_interval="step")
     
