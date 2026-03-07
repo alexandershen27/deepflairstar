@@ -8,23 +8,22 @@ class DeepFLAIRSwin(nn.Module):
         img_size: tuple = (64, 64, 64), 
         in_channels: int = 1,
         out_channels: int = 1,
-        feature_size: int = 24, # Must be divisible by 12
+        feature_size: int = 24, 
         use_checkpoint: bool = False,
     ):
         super().__init__()
         
-        # Core Swin-UNETR model with BatchNorm per user requirement
         self.swin = SwinUNETR(
             in_channels=in_channels,
             out_channels=out_channels,
             feature_size=feature_size,
             use_checkpoint=use_checkpoint,
-            norm_name="batch",
+            norm_name="batch", # Per user requirement
             spatial_dims=3,
         )
         
-        # Final Sigmoid projection to constrain output to [0, 1]
-        self.final_activation = nn.Sigmoid()
+        # HardSigmoid: Aggressive, linear $[0, 1]$ clamping.
+        self.final_activation = nn.Hardsigmoid()
 
     def forward(self, x):
         x = self.swin(x)
