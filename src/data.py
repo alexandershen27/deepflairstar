@@ -3,6 +3,7 @@ import glob
 import torch
 import numpy as np
 import pytorch_lightning as pl
+import itertools
 from typing import Optional, Sequence, Dict, Any, List
 from sklearn.model_selection import train_test_split
 from torch.utils.data import Dataset as TorchDataset
@@ -13,6 +14,7 @@ from monai.transforms import (
     EnsureChannelFirstd,
     ScaleIntensityd,
     SpatialPadd,
+    SpatialCropd,
     RandFlipd,
     RandGaussianSmoothd,
     RandCropByPosNegLabeld,
@@ -36,6 +38,36 @@ class PatchFisherDataset(TorchDataset):
             data = self.transform(data)
         return data
 
+class GridPatchDataset(TorchDataset):
+    def __init__(self, base_dataset, patch_coords, patch_size, transform=None):
+        self.base_dataset = base_dataset
+        self.patch_coords = patch_coords
+        self.patch_size = patch_size
+        self.transform = transform
+        self.samples_per_subject = len(patch_coords)
+
+    def __len__(self):
+        return len(self.base_dataset) * self.samples_per_subject
+
+    def __getitem__(self, index):
+        subj_idx = index // self.samples_per_subject
+        coord_idx = index % self.samples_per_subject
+        
+        data = self.base_dataset[subj_idx]
+        coord = self.patch_coords[coord_idx]
+        
+        # Extract patch
+        cropper = SpatialCropd(
+            keys=["image", "label"],
+            roi_start=coord,
+            roi_size=self.patch_size
+        )
+        data = cropper(data)
+        
+        if self.transform:
+            data = self.transform(data)
+        return data
+
 class DeepFLAIRDataModule(pl.LightningDataModule):
     def __init__(
         self,
@@ -50,6 +82,8 @@ class DeepFLAIRDataModule(pl.LightningDataModule):
         cache_rate: float = 0.0,
         cache_dir: str = "outputs/monai_cache",
         num_samples: int = 16,
+        sampling_type: str = "random",
+        sampling_stride: int = 32,
         pin_memory: bool = True,
     ):
         super().__init__()
@@ -65,6 +99,8 @@ class DeepFLAIRDataModule(pl.LightningDataModule):
         self.cache_rate = cache_rate
         self.cache_dir = cache_dir
         self.num_samples = num_samples
+        self.sampling_type = sampling_type
+        self.sampling_stride = sampling_stride
         self.pin_memory = pin_memory
 
     def _get_subject_list(self) -> List[Dict[str, str]]:
@@ -81,6 +117,15 @@ class DeepFLAIRDataModule(pl.LightningDataModule):
                 valid_data.append({"image": epi, "label": flair, "subject_id": os.path.basename(sub_dir)})
         return valid_data
 
+    def _calculate_grid_coords(self, spatial_shape, patch_size, stride):
+        grid_points = []
+        for i in range(3):
+            points = list(range(0, spatial_shape[i] - patch_size[i] + 1, stride))
+            if not points or points[-1] + patch_size[i] < spatial_shape[i]:
+                points.append(spatial_shape[i] - patch_size[i])
+            grid_points.append(points)
+        return list(itertools.product(*grid_points))
+
     def setup(self, stage: Optional[str] = None):
         valid_data = self._get_subject_list()
         if not valid_data:
@@ -95,7 +140,12 @@ class DeepFLAIRDataModule(pl.LightningDataModule):
 
         if stage == "fit" or stage is None:
             base_train = self._get_base_dataset(train_files, self.get_volume_transforms())
-            self.train_ds = PatchFisherDataset(base_train, self.num_samples, self.get_patch_transforms())
+            if self.sampling_type == "grid":
+                coords = self._calculate_grid_coords(self.padding_size, self.patch_size, self.sampling_stride)
+                self.train_ds = GridPatchDataset(base_train, coords, self.patch_size, self.get_grid_patch_transforms())
+            else:
+                self.train_ds = PatchFisherDataset(base_train, self.num_samples, self.get_patch_transforms())
+            
             self.val_ds = self._get_base_dataset(val_files, self.get_volume_transforms())
         
         if stage == "test" or stage is None:
@@ -129,6 +179,13 @@ class DeepFLAIRDataModule(pl.LightningDataModule):
                 image_key="image",
                 image_threshold=0.03,
             ),
+            RandFlipd(keys=["image", "label"], prob=0.5, spatial_axis=[0, 1]),
+            RandGaussianSmoothd(keys=["image"], sigma_x=(0.25, 1.5), sigma_y=(0.25, 1.5), sigma_z=(0.25, 1.5), prob=0.3),
+            EnsureTyped(keys=["image", "label"]),
+        ])
+
+    def get_grid_patch_transforms(self):
+        return Compose([
             RandFlipd(keys=["image", "label"], prob=0.5, spatial_axis=[0, 1]),
             RandGaussianSmoothd(keys=["image"], sigma_x=(0.25, 1.5), sigma_y=(0.25, 1.5), sigma_z=(0.25, 1.5), prob=0.3),
             EnsureTyped(keys=["image", "label"]),

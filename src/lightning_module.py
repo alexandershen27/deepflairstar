@@ -7,9 +7,7 @@ from monai.inferers import SlidingWindowInferer
 
 # Multi-Model Imports
 from src.arch.unet import DeepFLAIRNet
-from src.arch.swin_instance import DeepFLAIRSwinInstance
-from src.arch.swin_batch_sig import DeepFLAIRSwinBatchSig
-from src.arch.swin_batch_hard import DeepFLAIRSwinBatchHard
+from src.arch.swin import DeepFLAIRSwin
 from src.losses import DeepFLAIRLoss
 
 class DeepFLAIRLightningModule(pl.LightningModule):
@@ -21,6 +19,7 @@ class DeepFLAIRLightningModule(pl.LightningModule):
         beta1: float = 0.5,
         beta2: float = 0.999,
         mse_weight: float = 1.0,
+        l1_weight: float = 1.0,
         ssim_weight: float = 1.0,
         grad_weight: float = 1.0,
         patch_size: tuple = (64, 64, 64),
@@ -29,17 +28,14 @@ class DeepFLAIRLightningModule(pl.LightningModule):
         self.save_hyperparameters()
         
         # Architecture Selection
-        if model_type == "swin_instance":
-            self.model = DeepFLAIRSwinInstance(feature_size=base_channels, img_size=patch_size)
-        elif model_type == "swin_batch_sig":
-            self.model = DeepFLAIRSwinBatchSig(feature_size=base_channels, img_size=patch_size)
-        elif model_type == "swin_batch_hard":
-            self.model = DeepFLAIRSwinBatchHard(feature_size=base_channels, img_size=patch_size)
+        if model_type == "swin":
+            self.model = DeepFLAIRSwin(feature_size=base_channels, img_size=patch_size)
         else:
             self.model = DeepFLAIRNet(base_channels=base_channels)
             
         self.loss_fn = DeepFLAIRLoss(
-            mse_weight=mse_weight, 
+            mse_weight=mse_weight,
+            l1_weight=l1_weight,
             ssim_weight=ssim_weight, 
             grad_weight=grad_weight
         )
@@ -51,8 +47,6 @@ class DeepFLAIRLightningModule(pl.LightningModule):
             mode="gaussian"
         )
 
-        os.makedirs("vis", exist_ok=True)
-
     def forward(self, x):
         return self.model(x)
 
@@ -63,6 +57,7 @@ class DeepFLAIRLightningModule(pl.LightningModule):
         bs = x.shape[0]
         self.log("train_loss", loss, prog_bar=True, on_step=True, on_epoch=True, sync_dist=True, batch_size=bs)
         self.log("train_l1", metrics["l1"], sync_dist=True, batch_size=bs)
+        self.log("train_mse", metrics["mse"], sync_dist=True, batch_size=bs)
         return loss
 
     def validation_step(self, batch, batch_idx):
@@ -72,6 +67,7 @@ class DeepFLAIRLightningModule(pl.LightningModule):
         bs = x.shape[0]
         self.log("val_loss", loss, prog_bar=True, sync_dist=True, batch_size=bs)
         self.log("val_l1", metrics["l1"], sync_dist=True, batch_size=bs)
+        self.log("val_mse", metrics["mse"], sync_dist=True, batch_size=bs)
         if batch_idx == 0:
             self._log_images(x, y, y_hat, "val")
         return loss
@@ -95,15 +91,20 @@ class DeepFLAIRLightningModule(pl.LightningModule):
             axes[i, 2].imshow(pred, cmap='gray'); axes[i, 2].set_title(f"Pred {title}")
             for ax in axes[i]: ax.axis('off')
         plt.tight_layout()
-        epoch_path = f"vis/epoch_{self.current_epoch:03d}_{stage}_3view.png"
-        plt.savefig(epoch_path)
-        plt.close(fig)
         
+        # Log to loggers
         for logger in self.loggers:
-            if hasattr(logger, "experiment") and hasattr(logger.experiment, "log_artifact"):
-                run_id = logger.run_id if hasattr(logger, "run_id") else None
-                if run_id:
-                    logger.experiment.log_artifact(run_id=run_id, local_path=epoch_path, artifact_path="visualizations")
+            if isinstance(logger, pl.loggers.MLFlowLogger):
+                # Save temp image for MLFlow
+                tmp_path = f"tmp_vis_{self.global_rank}.png"
+                plt.savefig(tmp_path)
+                logger.experiment.log_artifact(run_id=logger.run_id, local_path=tmp_path, artifact_path="visualizations")
+                if os.path.exists(tmp_path):
+                    os.remove(tmp_path)
+            elif isinstance(logger, pl.loggers.TensorBoardLogger):
+                logger.experiment.add_figure(f"{stage}_3view", fig, global_step=self.global_step)
+        
+        plt.close(fig)
 
     def configure_optimizers(self):
         optimizer = torch.optim.Adam(self.model.parameters(), lr=self.hparams.lr, betas=(self.hparams.beta1, self.hparams.beta2))

@@ -22,8 +22,8 @@ class DeepFLAIRSwin(nn.Module):
             spatial_dims=3,
         )
         
-        # HardSigmoid: Aggressive, linear $[0, 1]$ clamping.
-        self.final_activation = nn.Hardsigmoid()
+        # Final projection: Direct ReLU
+        self.final_activation = nn.ReLU() # Forces output to be non-negative
 
     def forward(self, x):
         x = self.swin(x)

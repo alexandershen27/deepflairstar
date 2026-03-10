@@ -20,7 +20,9 @@ def main(args):
         patch_size=patch_size_tuple,
         num_workers=args.num_workers,
         cache_rate=args.cache_rate,
-        num_samples=args.num_samples
+        num_samples=args.num_samples,
+        sampling_type=args.sampling_type,
+        sampling_stride=args.sampling_stride
     )
     
     model = DeepFLAIRLightningModule(
@@ -28,6 +30,7 @@ def main(args):
         base_channels=args.base_channels,
         lr=args.lr,
         mse_weight=args.mse_weight,
+        l1_weight=args.l1_weight,
         ssim_weight=args.ssim_weight,
         grad_weight=args.grad_weight,
         patch_size=patch_size_tuple
@@ -36,13 +39,16 @@ def main(args):
     log_dir = os.path.abspath("logs/mlflow")
     os.makedirs(os.path.join(log_dir, "models"), exist_ok=True)
     
-    exp_name = f"DeepFLAIR_{args.model_type}"
+    exp_name = args.experiment_name or f"DeepFLAIR_{args.model_type}_{args.sampling_type}"
     tb_logger = TensorBoardLogger("logs", name=exp_name)
     ml_logger = MLFlowLogger(experiment_name=exp_name, save_dir=log_dir, log_model=True)
     
+    checkpoint_dir = os.path.join("outputs", exp_name, "checkpoints")
+    os.makedirs(checkpoint_dir, exist_ok=True)
+    
     checkpoint_callback = ModelCheckpoint(
         monitor="val_loss",
-        dirpath="outputs/checkpoints",
+        dirpath=checkpoint_dir,
         filename="deepflair-{epoch:03d}-{val_loss:.4f}",
         save_top_k=10,
         mode="min",
@@ -50,10 +56,17 @@ def main(args):
     )
     lr_monitor = LearningRateMonitor(logging_interval="step")
     
+    # Process devices: if it's a comma-separated string, convert it to a list of ints
+    devices = args.devices
+    if isinstance(devices, str) and devices.isdigit():
+        devices = [int(devices)]
+    elif isinstance(devices, str) and "," in devices:
+        devices = [int(d.strip()) for d in devices.split(",")]
+    
     trainer = pl.Trainer(
         max_epochs=args.max_epochs,
         accelerator="auto",
-        devices=args.devices,
+        devices=devices,
         sync_batchnorm=True,
         logger=[tb_logger, ml_logger],
         callbacks=[checkpoint_callback, lr_monitor],
@@ -68,12 +81,16 @@ def main(args):
 if __name__ == "__main__":
     parser = argparse.ArgumentParser()
     parser.add_argument("--data_dir", type=str, default="data")
-    parser.add_argument("--model_type", type=str, default="unet", choices=["unet", "swin"])
+    parser.add_argument("--model_type", type=str, default="unet")
+    parser.add_argument("--sampling_type", type=str, default="random", choices=["random", "grid"])
+    parser.add_argument("--sampling_stride", type=int, default=32)
+    parser.add_argument("--experiment_name", type=str, default=None)
     parser.add_argument("--batch_size", type=int, default=8)
     parser.add_argument("--patch_size", type=int, default=64)
     parser.add_argument("--base_channels", type=int, default=16)
     parser.add_argument("--lr", type=float, default=1e-4)
     parser.add_argument("--mse_weight", type=float, default=1.0)
+    parser.add_argument("--l1_weight", type=float, default=1.0)
     parser.add_argument("--ssim_weight", type=float, default=1.0)
     parser.add_argument("--grad_weight", type=float, default=1.0)
     parser.add_argument("--max_epochs", type=int, default=300)
