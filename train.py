@@ -21,8 +21,7 @@ def main(args):
         num_workers=args.num_workers,
         cache_rate=args.cache_rate,
         num_samples=args.num_samples,
-        sampling_type=args.sampling_type,
-        sampling_stride=args.sampling_stride
+        sampling_type=args.sampling_type
     )
     
     model = DeepFLAIRLightningModule(
@@ -83,7 +82,6 @@ if __name__ == "__main__":
     parser.add_argument("--data_dir", type=str, default="data")
     parser.add_argument("--model_type", type=str, default="unet")
     parser.add_argument("--sampling_type", type=str, default="random", choices=["random", "grid"])
-    parser.add_argument("--sampling_stride", type=int, default=32)
     parser.add_argument("--experiment_name", type=str, default=None)
     parser.add_argument("--batch_size", type=int, default=8)
     parser.add_argument("--patch_size", type=int, default=64)

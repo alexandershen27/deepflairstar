@@ -56,11 +56,14 @@ class GridPatchDataset(TorchDataset):
         data = self.base_dataset[subj_idx]
         coord = self.patch_coords[coord_idx]
         
+        # Calculate roi_end because MONAI requires either (center, size) or (start, end)
+        roi_end = [c + p for c, p in zip(coord, self.patch_size)]
+        
         # Extract patch
         cropper = SpatialCropd(
             keys=["image", "label"],
             roi_start=coord,
-            roi_size=self.patch_size
+            roi_end=roi_end
         )
         data = cropper(data)
         
@@ -83,7 +86,6 @@ class DeepFLAIRDataModule(pl.LightningDataModule):
         cache_dir: str = "outputs/monai_cache",
         num_samples: int = 16,
         sampling_type: str = "random",
-        sampling_stride: int = 32,
         pin_memory: bool = True,
     ):
         super().__init__()
@@ -100,7 +102,7 @@ class DeepFLAIRDataModule(pl.LightningDataModule):
         self.cache_dir = cache_dir
         self.num_samples = num_samples
         self.sampling_type = sampling_type
-        self.sampling_stride = sampling_stride
+        self.sampling_stride = 32 # Hardcoded to 32
         self.pin_memory = pin_memory
 
     def _get_subject_list(self) -> List[Dict[str, str]]:
