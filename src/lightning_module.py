@@ -50,14 +50,23 @@ class DeepFLAIRLightningModule(pl.LightningModule):
     def forward(self, x):
         return self.model(x)
 
+    def _calculate_psnr(self, mse_loss):
+        # Assumes data is scaled [0, 1]
+        if mse_loss == 0:
+            return 100.0
+        return 20 * torch.log10(1.0 / torch.sqrt(mse_loss))
+
     def training_step(self, batch, batch_idx):
         x, y = batch["image"], batch["label"]
         y_hat = self.model(x)
         loss, metrics = self.loss_fn(y_hat, y)
         bs = x.shape[0]
+        psnr = self._calculate_psnr(metrics["mse"])
+        
         self.log("train_loss", loss, prog_bar=True, on_step=True, on_epoch=True, sync_dist=True, batch_size=bs)
         self.log("train_l1", metrics["l1"], sync_dist=True, batch_size=bs)
         self.log("train_mse", metrics["mse"], sync_dist=True, batch_size=bs)
+        self.log("train_psnr", psnr, sync_dist=True, batch_size=bs)
         return loss
 
     def validation_step(self, batch, batch_idx):
@@ -65,11 +74,32 @@ class DeepFLAIRLightningModule(pl.LightningModule):
         y_hat = self.inferer(x, self.model)
         loss, metrics = self.loss_fn(y_hat, y)
         bs = x.shape[0]
+        psnr = self._calculate_psnr(metrics["mse"])
+        
         self.log("val_loss", loss, prog_bar=True, sync_dist=True, batch_size=bs)
         self.log("val_l1", metrics["l1"], sync_dist=True, batch_size=bs)
         self.log("val_mse", metrics["mse"], sync_dist=True, batch_size=bs)
+        self.log("val_psnr", psnr, sync_dist=True, batch_size=bs)
+        
         if batch_idx == 0:
             self._log_images(x, y, y_hat, "val")
+        return loss
+
+    def test_step(self, batch, batch_idx):
+        x, y = batch["image"], batch["label"]
+        y_hat = self.inferer(x, self.model)
+        loss, metrics = self.loss_fn(y_hat, y)
+        bs = x.shape[0]
+        psnr = self._calculate_psnr(metrics["mse"])
+        
+        self.log("test_loss", loss, sync_dist=True, batch_size=bs)
+        self.log("test_l1", metrics["l1"], sync_dist=True, batch_size=bs)
+        self.log("test_mse", metrics["mse"], sync_dist=True, batch_size=bs)
+        self.log("test_psnr", psnr, sync_dist=True, batch_size=bs)
+        self.log("test_ssim", metrics["ssim_loss"], sync_dist=True, batch_size=bs)
+        
+        if batch_idx == 0:
+            self._log_images(x, y, y_hat, "test")
         return loss
 
     def _log_images(self, x, y, y_hat, stage):
@@ -96,7 +126,7 @@ class DeepFLAIRLightningModule(pl.LightningModule):
         for logger in self.loggers:
             if isinstance(logger, pl.loggers.MLFlowLogger):
                 # Save temp image for MLFlow
-                tmp_path = f"tmp_vis_{self.global_rank}.png"
+                tmp_path = f"tmp_vis_{self.global_rank}_{stage}.png"
                 plt.savefig(tmp_path)
                 logger.experiment.log_artifact(run_id=logger.run_id, local_path=tmp_path, artifact_path="visualizations")
                 if os.path.exists(tmp_path):
