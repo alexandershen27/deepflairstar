@@ -1,4 +1,5 @@
 import torch
+import torch.nn as nn
 import numpy as np
 import pytorch_lightning as pl
 import os
@@ -30,11 +31,16 @@ class DeepFLAIRLightningModule(pl.LightningModule):
         # Architecture Selection
         if model_type == "swin":
             # Ensure feature_size is divisible by 12 for MONAI SwinUNETR
-            # Default to 24 if the provided base_channels (e.g. 16) is invalid
             swin_features = base_channels if base_channels % 12 == 0 else 24
             self.model = DeepFLAIRSwin(feature_size=swin_features, img_size=patch_size)
         else:
             self.model = DeepFLAIRNet(base_channels=base_channels)
+            
+        # DDP Stability Fix: Disable all inplace activations (e.g. LeakyReLU) 
+        # to avoid SyncBatchNorm deadlocks.
+        for m in self.model.modules():
+            if hasattr(m, "inplace"):
+                m.inplace = False
             
         self.loss_fn = DeepFLAIRLoss(
             mse_weight=mse_weight,
@@ -74,10 +80,11 @@ class DeepFLAIRLightningModule(pl.LightningModule):
 
     def validation_step(self, batch, batch_idx):
         x, y = batch["image"], batch["label"]
+        # sw_batch_size=2 is a good balance between speed and memory safety
         y_hat = sliding_window_inference(
             inputs=x,
             roi_size=self.hparams.patch_size,
-            sw_batch_size=4,
+            sw_batch_size=2,
             predictor=self.model,
             overlap=0.5,
             mode="constant",
@@ -100,7 +107,7 @@ class DeepFLAIRLightningModule(pl.LightningModule):
         y_hat = sliding_window_inference(
             inputs=x,
             roi_size=self.hparams.patch_size,
-            sw_batch_size=4,
+            sw_batch_size=2,
             predictor=self.model,
             overlap=0.5,
             mode="constant",

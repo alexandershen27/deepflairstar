@@ -56,7 +56,7 @@ class GridPatchDataset(TorchDataset):
         data = self.base_dataset[subj_idx]
         coord = self.patch_coords[coord_idx]
         
-        # Calculate roi_end because MONAI requires either (center, size) or (start, end)
+        # Calculate roi_end for MONAI SpatialCropd
         roi_end = [c + p for c, p in zip(coord, self.patch_size)]
         
         # Extract patch
@@ -78,11 +78,11 @@ class DeepFLAIRDataModule(pl.LightningDataModule):
         batch_size: int = 4,
         patch_size: Sequence[int] = (64, 64, 64),
         padding_size: Sequence[int] = (320, 384, 320),
-        num_workers: int = 4,
+        num_workers: int = 32, # Optimized for 32-core CPU
         val_split: float = 0.1,
         test_split: float = 0.2,
         random_state: int = 42,
-        cache_rate: float = 0.0,
+        cache_rate: float = 1.0, # Fully cache in RAM after first load
         cache_dir: str = "outputs/monai_cache",
         num_samples: int = 16,
         sampling_type: str = "random",
@@ -102,7 +102,7 @@ class DeepFLAIRDataModule(pl.LightningDataModule):
         self.cache_dir = cache_dir
         self.num_samples = num_samples
         self.sampling_type = sampling_type
-        self.sampling_stride = 32 # Hardcoded to 32
+        self.sampling_stride = 32
         self.pin_memory = pin_memory
 
     def _get_subject_list(self) -> List[Dict[str, str]]:
@@ -141,6 +141,7 @@ class DeepFLAIRDataModule(pl.LightningDataModule):
         )
 
         if stage == "fit" or stage is None:
+            # Persistent caching for fast multi-epoch training
             base_train = self._get_base_dataset(train_files, self.get_volume_transforms())
             if self.sampling_type == "grid":
                 coords = self._calculate_grid_coords(self.padding_size, self.patch_size, self.sampling_stride)
@@ -154,11 +155,10 @@ class DeepFLAIRDataModule(pl.LightningDataModule):
             self.test_ds = self._get_base_dataset(test_files, self.get_volume_transforms())
 
     def _get_base_dataset(self, files, transforms):
-        if self.cache_dir and self.cache_dir.lower() != "none":
-            os.makedirs(self.cache_dir, exist_ok=True)
-            return PersistentDataset(data=files, transform=transforms, cache_dir=self.cache_dir)
-        elif self.cache_rate > 0:
+        # Prefer CacheDataset for speed if cache_rate > 0
+        if self.cache_rate > 0:
             return CacheDataset(data=files, transform=transforms, cache_rate=self.cache_rate, num_workers=self.num_workers)
+        # Fallback to standard Dataset
         return Dataset(data=files, transform=transforms)
 
     def get_volume_transforms(self):
