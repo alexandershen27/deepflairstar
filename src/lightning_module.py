@@ -29,7 +29,10 @@ class DeepFLAIRLightningModule(pl.LightningModule):
         
         # Architecture Selection
         if model_type == "swin":
-            self.model = DeepFLAIRSwin(feature_size=base_channels, img_size=patch_size)
+            # Ensure feature_size is divisible by 12 for MONAI SwinUNETR
+            # Default to 24 if the provided base_channels (e.g. 16) is invalid
+            swin_features = base_channels if base_channels % 12 == 0 else 24
+            self.model = DeepFLAIRSwin(feature_size=swin_features, img_size=patch_size)
         else:
             self.model = DeepFLAIRNet(base_channels=base_channels)
             
