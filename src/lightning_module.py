@@ -3,12 +3,15 @@ import torch
 import torch.nn as nn
 import numpy as np
 import pytorch_lightning as pl
+import matplotlib
+matplotlib.use('Agg')
 import matplotlib.pyplot as plt
-import threading
 from monai.inferers import sliding_window_inference
 
 from src.arch.unet import DeepFLAIRNet
 from src.arch.swin import DeepFLAIRSwin
+from src.arch.attention_unet import DeepFLAIRAttentionNet
+from src.arch.unetr import DeepFLAIRUNETR
 from src.losses import DeepFLAIRLoss
 
 class DeepFLAIRLightningModule(pl.LightningModule):
@@ -31,6 +34,10 @@ class DeepFLAIRLightningModule(pl.LightningModule):
         if model_type == "swin":
             swin_features = base_channels if base_channels % 12 == 0 else 24
             self.model = DeepFLAIRSwin(feature_size=swin_features, img_size=patch_size, activation=activation)
+        elif model_type == "attention_unet":
+            self.model = DeepFLAIRAttentionNet(base_channels=base_channels)
+        elif model_type == "unetr":
+            self.model = DeepFLAIRUNETR(img_size=patch_size, feature_size=base_channels)
         else:
             self.model = DeepFLAIRNet(base_channels=base_channels)
             
@@ -93,44 +100,41 @@ class DeepFLAIRLightningModule(pl.LightningModule):
         return loss
 
     def _log_images(self, y, y_hat, stage):
-        lbl_vol = y[0, 0].detach().cpu().numpy()
-        pred_vol = y_hat[0, 0].detach().cpu().numpy()
-        
+        lbl_vol = y[0, 0].detach().cpu().float().numpy()
+        pred_vol = y_hat[0, 0].detach().cpu().float().numpy()
+
         loggers = self.loggers if isinstance(self.loggers, (list, tuple)) else ([self.logger] if self.logger else [])
         current_step = self.global_step
-        
-        def draw_and_save():
-            c = [s // 2 for s in lbl_vol.shape]
-            
-            views = [
-                (lbl_vol[c[0], :, :], pred_vol[c[0], :, :], "Axial"),
-                (lbl_vol[:, c[1], :], pred_vol[:, c[1], :], "Sagittal"),
-                (lbl_vol[:, :, c[2]], pred_vol[:, :, c[2]], "Coronal")
-            ]
-            
-            plt.switch_backend('agg') 
-            fig, axes = plt.subplots(3, 2, figsize=(8, 12)) 
-            
-            for i, (lbl, pred, title) in enumerate(views):
-                axes[i, 0].imshow(lbl, cmap='gray', vmin=0, vmax=1); axes[i, 0].set_title(f"GT {title}"); axes[i, 0].axis('off')
-                axes[i, 1].imshow(pred, cmap='gray', vmin=0, vmax=1); axes[i, 1].set_title(f"Pred {title}"); axes[i, 1].axis('off')
-            plt.tight_layout()
-            
-            for logger in loggers:
-                if isinstance(logger, pl.loggers.MLFlowLogger):
-                    tmp_path = f"tmp_vis_{stage}_{current_step}.png"
-                    plt.savefig(tmp_path)
-                    logger.experiment.log_artifact(run_id=logger.run_id, local_path=tmp_path, artifact_path="visualizations")
-                    if os.path.exists(tmp_path):
-                        os.remove(tmp_path)
-                elif isinstance(logger, pl.loggers.TensorBoardLogger):
-                    logger.experiment.add_figure(f"{stage}_3view", fig, global_step=current_step)
-                    
-            plt.close(fig)
 
-        thread = threading.Thread(target=draw_and_save)
-        thread.daemon = True 
-        thread.start()
+        c = [s // 2 for s in lbl_vol.shape]
+        views = [
+            (lbl_vol[c[0], :, :], pred_vol[c[0], :, :], "Axial"),
+            (lbl_vol[:, c[1], :], pred_vol[:, c[1], :], "Sagittal"),
+            (lbl_vol[:, :, c[2]], pred_vol[:, :, c[2]], "Coronal"),
+        ]
+
+        fig, axes = plt.subplots(3, 2, figsize=(8, 12))
+        for i, (lbl, pred, title) in enumerate(views):
+            # GT: fixed [0,1] scale; Pred: auto-scaled so structure is always visible
+            axes[i, 0].imshow(lbl, cmap='gray', vmin=0, vmax=1)
+            axes[i, 0].set_title(f"GT {title}")
+            axes[i, 0].axis('off')
+            axes[i, 1].imshow(pred, cmap='gray')
+            axes[i, 1].set_title(f"Pred {title} [{pred.min():.2f},{pred.max():.2f}]")
+            axes[i, 1].axis('off')
+        plt.tight_layout()
+
+        for logger in loggers:
+            if isinstance(logger, pl.loggers.MLFlowLogger):
+                tmp_path = f"tmp_vis_{stage}_{current_step}.png"
+                plt.savefig(tmp_path)
+                logger.experiment.log_artifact(run_id=logger.run_id, local_path=tmp_path, artifact_path="visualizations")
+                if os.path.exists(tmp_path):
+                    os.remove(tmp_path)
+            elif isinstance(logger, pl.loggers.TensorBoardLogger):
+                logger.experiment.add_figure(f"{stage}_3view", fig, global_step=current_step)
+
+        plt.close(fig)
 
     def configure_optimizers(self):
         return torch.optim.Adam(
