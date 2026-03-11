@@ -78,7 +78,7 @@ class DeepFLAIRDataModule(pl.LightningDataModule):
         batch_size: int = 4,
         patch_size: Sequence[int] = (64, 64, 64),
         padding_size: Sequence[int] = (320, 384, 320),
-        num_workers: int = 2, # Reduced to 2 per GPU for stability
+        num_workers: int = 0, # SET TO 0 FOR ABSOLUTE STABILITY (No background workers)
         val_split: float = 0.1,
         test_split: float = 0.2,
         random_state: int = 42,
@@ -86,7 +86,7 @@ class DeepFLAIRDataModule(pl.LightningDataModule):
         cache_dir: str = "outputs/monai_cache",
         num_samples: int = 16,
         sampling_type: str = "random",
-        pin_memory: bool = False, # Disabled to avoid "Pin memory thread exited" error
+        pin_memory: bool = False, # Keep False to avoid thread-level errors
     ):
         super().__init__()
         self.save_hyperparameters()
