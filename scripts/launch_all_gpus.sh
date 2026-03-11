@@ -10,7 +10,11 @@ SESSION_UNET="unet"
 SESSION_SWIN="swin"
 SESSION_ATTN="attention_unet"
 
-# Kill any existing sessions with these names
+# Kill any zombie training processes first
+pkill -f "python train.py" 2>/dev/null || true
+sleep 2
+
+# Kill any existing tmux sessions with these names
 for s in $SESSION_UNET $SESSION_SWIN $SESSION_ATTN; do
     tmux kill-session -t $s 2>/dev/null || true
 done
