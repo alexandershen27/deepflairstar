@@ -15,7 +15,7 @@ from monai.transforms import (
     ScaleIntensityd,
     SpatialPadd,
     SpatialCrop,
-    SpatialCropd,
+    RandCropByPosNegLabeld,
     RandFlipd,
     RandGaussianSmoothd,
     EnsureTyped,
@@ -69,7 +69,8 @@ class DeepFLAIRDataModule(pl.LightningDataModule):
         random_state: int = 42,
         cache_rate: float = 0.0,
         cache_dir: str = "outputs/monai_cache",
-        sampling_stride: int = 32,
+        samples_per_volume: int = 4,
+        sampling_stride: int = 32, # Kept for backward compatibility
         pin_memory: bool = False,
     ):
         super().__init__()
@@ -84,6 +85,7 @@ class DeepFLAIRDataModule(pl.LightningDataModule):
         self.random_state = random_state
         self.cache_rate = cache_rate
         self.cache_dir = cache_dir
+        self.samples_per_volume = samples_per_volume
         self.sampling_stride = sampling_stride
         self.pin_memory = pin_memory
 
@@ -123,13 +125,11 @@ class DeepFLAIRDataModule(pl.LightningDataModule):
         )
 
         if stage == "fit" or stage is None:
-            base_train = self._get_base_dataset(train_files, self.get_volume_transforms())
-            coords = self._calculate_grid_coords(self.padding_size, self.patch_size, self.sampling_stride)
-            self.train_ds = GridPatchDataset(base_train, coords, self.patch_size, self.get_grid_patch_transforms())
-            self.val_ds = self._get_base_dataset(val_files, self.get_volume_transforms())
+            self.train_ds = self._get_base_dataset(train_files, self.get_train_transforms())
+            self.val_ds = self._get_base_dataset(val_files, self.get_val_transforms())
         
         if stage == "test" or stage is None:
-            self.test_ds = self._get_base_dataset(test_files, self.get_volume_transforms())
+            self.test_ds = self._get_base_dataset(test_files, self.get_val_transforms())
 
     def _get_base_dataset(self, files, transforms):
         if self.cache_rate > 0.0:
@@ -141,19 +141,33 @@ class DeepFLAIRDataModule(pl.LightningDataModule):
             )
         return Dataset(data=files, transform=transforms)
 
-    def get_volume_transforms(self):
+    def get_train_transforms(self):
         return Compose([
             LoadImaged(keys=["image", "label"]),
             EnsureChannelFirstd(keys=["image", "label"]),
             ScaleIntensityd(keys=["image", "label"], minv=0.0, maxv=1.0),
             SpatialPadd(keys=["image", "label"], spatial_size=self.padding_size),
+            RandCropByPosNegLabeld(
+                keys=["image", "label"], 
+                label_key="image",
+                spatial_size=self.patch_size, 
+                pos=1.0, 
+                neg=0.0, 
+                num_samples=self.samples_per_volume, 
+                image_key="image",
+                image_threshold=0.03
+            ),
+            RandFlipd(keys=["image", "label"], prob=0.5, spatial_axis=[0, 1]),
+            RandGaussianSmoothd(keys=["image"], sigma_x=(0.25, 1.5), sigma_y=(0.25, 1.5), sigma_z=(0.25, 1.5), prob=0.3),
             EnsureTyped(keys=["image", "label"]),
         ])
 
-    def get_grid_patch_transforms(self):
+    def get_val_transforms(self):
         return Compose([
-            RandFlipd(keys=["image", "label"], prob=0.5, spatial_axis=[0, 1]),
-            RandGaussianSmoothd(keys=["image"], sigma_x=(0.25, 1.5), sigma_y=(0.25, 1.5), sigma_z=(0.25, 1.5), prob=0.3),
+            LoadImaged(keys=["image", "label"]),
+            EnsureChannelFirstd(keys=["image", "label"]),
+            ScaleIntensityd(keys=["image", "label"], minv=0.0, maxv=1.0),
+            SpatialPadd(keys=["image", "label"], spatial_size=self.padding_size),
             EnsureTyped(keys=["image", "label"]),
         ])
 
