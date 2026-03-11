@@ -15,7 +15,8 @@ from monai.transforms import (
     ScaleIntensityd,
     SpatialPadd,
     SpatialCrop,
-    RandCropByPosNegLabeld,
+    CropForegroundd,
+    RandSpatialCropSamplesd,
     RandFlipd,
     RandGaussianSmoothd,
     EnsureTyped,
@@ -146,16 +147,14 @@ class DeepFLAIRDataModule(pl.LightningDataModule):
             LoadImaged(keys=["image", "label"]),
             EnsureChannelFirstd(keys=["image", "label"]),
             ScaleIntensityd(keys=["image", "label"], minv=0.0, maxv=1.0),
+            CropForegroundd(keys=["image", "label"], source_key="image", select_fn=lambda x: x > 0.03, margin=0),
             SpatialPadd(keys=["image", "label"], spatial_size=self.padding_size),
-            RandCropByPosNegLabeld(
-                keys=["image", "label"], 
-                label_key="image",
-                spatial_size=self.patch_size, 
-                pos=1.0, 
-                neg=1.0, 
-                num_samples=self.samples_per_volume, 
-                image_key="image",
-                image_threshold=0.03
+            RandSpatialCropSamplesd(
+                keys=["image", "label"],
+                roi_size=self.patch_size,
+                num_samples=self.samples_per_volume,
+                random_center=True,
+                random_size=False
             ),
             RandFlipd(keys=["image", "label"], prob=0.5, spatial_axis=[0, 1]),
             RandGaussianSmoothd(keys=["image"], sigma_x=(0.25, 1.5), sigma_y=(0.25, 1.5), sigma_z=(0.25, 1.5), prob=0.3),
