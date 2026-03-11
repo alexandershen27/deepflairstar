@@ -4,7 +4,7 @@ import pytorch_lightning as pl
 import os
 import matplotlib.pyplot as plt
 import nibabel as nib
-from monai.inferers import SlidingWindowInferer
+from monai.inferers import sliding_window_inference
 
 # Multi-Model Imports
 from src.arch.unet import DeepFLAIRNet
@@ -39,15 +39,8 @@ class DeepFLAIRLightningModule(pl.LightningModule):
             grad_weight=grad_weight
         )
         
-        # Initialize the inferer WITHOUT the weight map to avoid API version conflicts
-        self.inferer = SlidingWindowInferer(
-            roi_size=tuple(patch_size),
-            sw_batch_size=4,
-            overlap=0.5,
-            mode="constant" 
-        )
-
         # Register 3D Hann Window as a buffer so it moves to GPU automatically
+        # Shape: [1, D, H, W] - MONAI functional API expects this for single-channel weighting
         self.register_buffer("hann_window", self._generate_3d_hann(patch_size))
 
     def _generate_3d_hann(self, patch_size):
@@ -57,7 +50,7 @@ class DeepFLAIRLightningModule(pl.LightningModule):
         w_w = torch.hann_window(patch_size[2], periodic=False)
         # Create 3D window by outer product
         window_3d = w_d.view(-1, 1, 1) * w_h.view(1, -1, 1) * w_w.view(1, 1, -1)
-        # Add channel dim: MONAI expects [1, D, H, W] or [C, D, H, W]
+        # MONAI expects [1, D, H, W] for the roi_weight_map
         return window_3d.unsqueeze(0)
 
     def forward(self, x):
@@ -80,8 +73,16 @@ class DeepFLAIRLightningModule(pl.LightningModule):
 
     def validation_step(self, batch, batch_idx):
         x, y = batch["image"], batch["label"]
-        # Pass the GPU-bound buffer during the call via roi_weight_map
-        y_hat = self.inferer(x, self.model, roi_weight_map=self.hann_window)
+        # Use functional sliding_window_inference to avoid API version conflicts
+        y_hat = sliding_window_inference(
+            inputs=x,
+            roi_size=self.hparams.patch_size,
+            sw_batch_size=4,
+            predictor=self.model,
+            overlap=0.5,
+            mode="constant",
+            roi_weight_map=self.hann_window
+        )
         loss, metrics = self.loss_fn(y_hat, y)
         bs = x.shape[0]
         
@@ -94,8 +95,16 @@ class DeepFLAIRLightningModule(pl.LightningModule):
 
     def test_step(self, batch, batch_idx):
         x, y = batch["image"], batch["label"]
-        # Pass the GPU-bound buffer during the call via roi_weight_map
-        y_hat = self.inferer(x, self.model, roi_weight_map=self.hann_window)
+        # Use functional sliding_window_inference to avoid API version conflicts
+        y_hat = sliding_window_inference(
+            inputs=x,
+            roi_size=self.hparams.patch_size,
+            sw_batch_size=4,
+            predictor=self.model,
+            overlap=0.5,
+            mode="constant",
+            roi_weight_map=self.hann_window
+        )
         loss, metrics = self.loss_fn(y_hat, y)
         bs = x.shape[0]
         psnr = self._calculate_psnr(metrics["mse"])
