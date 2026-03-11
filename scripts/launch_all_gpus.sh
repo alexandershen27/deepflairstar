@@ -37,6 +37,7 @@ tmux send-keys -t $SESSION_UNET \
     --base_channels 16 \
     --max_epochs 300 \
     --repeat_dataset 8 \
+    --preset optuna \
     --experiment_name DF_unet_BS16 \
     --num_workers 4" Enter
 
@@ -48,6 +49,7 @@ tmux send-keys -t $SESSION_SWIN \
     --batch_size 2 \
     --base_channels 24 \
     --max_epochs 300 \
+    --preset optuna \
     --experiment_name DF_swin_BS2 \
     --num_workers 4" Enter
 
@@ -60,6 +62,7 @@ tmux send-keys -t $SESSION_ATTN \
     --base_channels 16 \
     --max_epochs 300 \
     --repeat_dataset 8 \
+    --preset optuna \
     --experiment_name DF_attention_unet_BS16 \
     --num_workers 4" Enter
 
@@ -72,6 +75,7 @@ tmux send-keys -t $SESSION_UNETRPP \
     --base_channels 32 \
     --max_epochs 300 \
     --repeat_dataset 16 \
+    --preset optuna \
     --experiment_name DF_unetrpp_BS32 \
     --num_workers 4" Enter
 
