@@ -5,7 +5,7 @@ import pytorch_lightning as pl
 import os
 import matplotlib.pyplot as plt
 import nibabel as nib
-from monai.inferers import SlidingWindowInferer
+from monai.inferers import sliding_window_inference
 
 # Multi-Model Imports
 from src.arch.unet import DeepFLAIRNet
@@ -41,20 +41,8 @@ class DeepFLAIRLightningModule(pl.LightningModule):
             grad_weight=grad_weight
         )
         
-        # 1. Create Hann Window
-        hann_map = self._generate_3d_hann(patch_size)
-        
-        # 2. Register as buffer so it moves to GPU with the model
-        self.register_buffer("roi_weight_map", hann_map)
-        
-        # 3. Initialize Inferer with the map in the constructor (Safe for DDP)
-        self.inferer = SlidingWindowInferer(
-            roi_size=tuple(patch_size),
-            sw_batch_size=4,
-            overlap=0.5,
-            roi_weight_map=self.roi_weight_map,
-            mode="constant" 
-        )
+        # Register 3D Hann Window as a buffer
+        self.register_buffer("hann_window", self._generate_3d_hann(patch_size))
 
     def _generate_3d_hann(self, patch_size):
         w_d = torch.hann_window(patch_size[0], periodic=False)
@@ -77,7 +65,16 @@ class DeepFLAIRLightningModule(pl.LightningModule):
 
     def validation_step(self, batch, batch_idx):
         x, y = batch["image"], batch["label"]
-        y_hat = self.inferer(x, self.model)
+        # Functional call is the only way to pass custom maps reliably in DDP
+        y_hat = sliding_window_inference(
+            inputs=x,
+            roi_size=self.hparams.patch_size,
+            sw_batch_size=4,
+            predictor=self.model,
+            overlap=0.5,
+            mode="constant",
+            roi_weight_map=self.hann_window
+        )
         loss, metrics = self.loss_fn(y_hat, y)
         bs = x.shape[0]
         self.log("val_loss", loss, prog_bar=True, sync_dist=True, batch_size=bs)
@@ -88,7 +85,15 @@ class DeepFLAIRLightningModule(pl.LightningModule):
 
     def test_step(self, batch, batch_idx):
         x, y = batch["image"], batch["label"]
-        y_hat = self.inferer(x, self.model)
+        y_hat = sliding_window_inference(
+            inputs=x,
+            roi_size=self.hparams.patch_size,
+            sw_batch_size=4,
+            predictor=self.model,
+            overlap=0.5,
+            mode="constant",
+            roi_weight_map=self.hann_window
+        )
         loss, metrics = self.loss_fn(y_hat, y)
         bs = x.shape[0]
         self.log("test_loss", loss, sync_dist=True, batch_size=bs)
