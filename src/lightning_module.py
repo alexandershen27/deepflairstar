@@ -23,13 +23,14 @@ class DeepFLAIRLightningModule(pl.LightningModule):
         ssim_weight: float = 1.0,
         grad_weight: float = 1.0,
         patch_size: tuple = (64, 64, 64),
+        activation: str = "relu",
     ):
         super().__init__()
         self.save_hyperparameters()
         
         if model_type == "swin":
             swin_features = base_channels if base_channels % 12 == 0 else 24
-            self.model = DeepFLAIRSwin(feature_size=swin_features, img_size=patch_size)
+            self.model = DeepFLAIRSwin(feature_size=swin_features, img_size=patch_size, activation=activation)
         else:
             self.model = DeepFLAIRNet(base_channels=base_channels)
             

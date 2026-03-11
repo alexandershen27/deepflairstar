@@ -10,6 +10,7 @@ class DeepFLAIRSwin(nn.Module):
         out_channels: int = 1,
         feature_size: int = 24, 
         use_checkpoint: bool = False,
+        activation: str = "relu",
     ):
         super().__init__()
         
@@ -22,7 +23,12 @@ class DeepFLAIRSwin(nn.Module):
             spatial_dims=3,
         )
         
-        self.final_activation = nn.ReLU() 
+        if activation == "hardsigmoid":
+            self.final_activation = nn.Hardsigmoid()
+        elif activation == "sigmoid":
+            self.final_activation = nn.Sigmoid()
+        else:
+            self.final_activation = nn.ReLU() 
 
     def forward(self, x):
         x = self.swin(x)

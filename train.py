@@ -36,7 +36,8 @@ def main(args):
         mse_weight=args.mse_weight,
         ssim_weight=args.ssim_weight,
         grad_weight=args.grad_weight,
-        patch_size=patch_size_tuple
+        patch_size=patch_size_tuple,
+        activation=args.activation
     )
     
     log_dir = os.path.abspath("logs/mlflow")
@@ -92,6 +93,7 @@ if __name__ == "__main__":
     parser.add_argument("--model_type", type=str, default="unet")
     parser.add_argument("--base_channels", type=int, default=16)
     parser.add_argument("--lr", type=float, default=1e-4)
+    parser.add_argument("--activation", type=str, default="relu", choices=["relu", "sigmoid", "hardsigmoid"])
     
     # Loss weights
     parser.add_argument("--mse_weight", type=float, default=1.0)
