@@ -34,6 +34,8 @@ def main(args):
         model_type=args.model_type,
         base_channels=args.base_channels,
         lr=args.lr,
+        beta1=args.beta1,
+        beta2=args.beta2,
         mse_weight=args.mse_weight,
         ssim_weight=args.ssim_weight,
         grad_weight=args.grad_weight,
@@ -95,6 +97,8 @@ if __name__ == "__main__":
     parser.add_argument("--model_type", type=str, default="unet", choices=["unet", "swin", "attention_unet", "unetr", "unetrpp"])
     parser.add_argument("--base_channels", type=int, default=16)
     parser.add_argument("--lr", type=float, default=1e-4)
+    parser.add_argument("--beta1", type=float, default=0.5)
+    parser.add_argument("--beta2", type=float, default=0.999)
     parser.add_argument("--activation", type=str, default="relu", choices=["relu", "sigmoid", "hardsigmoid"])
     
     # Loss weights
@@ -107,6 +111,21 @@ if __name__ == "__main__":
     parser.add_argument("--max_epochs", type=int, default=300)
     parser.add_argument("--ckpt_path", type=str, default=None)
     parser.add_argument("--test", action="store_true")
-    
+
+    # Presets (override individual hyperparams)
+    parser.add_argument("--preset", type=str, default=None, choices=["optuna"],
+                        help="Named hyperparameter preset. Overrides lr, beta1, beta2, and loss weights.")
+
     args = parser.parse_args()
+
+    # Apply preset overrides before passing to main
+    if args.preset == "optuna":
+        # Final hyperparameters from Optuna sweep (Baburyan et al. lab)
+        args.lr          = 0.00028
+        args.beta1       = 0.468
+        args.beta2       = 0.94
+        args.mse_weight  = 1.5
+        args.ssim_weight = 0.2
+        args.grad_weight = 0.15
+
     main(args)
