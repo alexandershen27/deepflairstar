@@ -3,10 +3,6 @@ import torch.nn as nn
 from typing import Sequence, Optional, Union
 
 class DoubleConvBlock(nn.Module):
-    """
-    Standard block B from paper: 2x (Conv3D, BatchNorm3D, LeakyReLU)
-    Renamed from ResidualBlock to reflect that it lacks internal skip connections.
-    """
     def __init__(self, in_channels: int, out_channels: int):
         super().__init__()
         self.block = nn.Sequential(
@@ -57,10 +53,9 @@ class DeepFLAIRNet(nn.Module):
         # Final projection: Direct 1x1x1 Conv + ReLU
         self.final_conv = nn.Sequential(
             nn.Conv3d(base_channels, out_channels, kernel_size=1),
-            nn.ReLU() # Forces output to be non-negative
+            nn.ReLU() 
         )
 
-        # He Initialization for ReLU stability
         self.apply(self._init_weights)
 
     def _init_weights(self, m):

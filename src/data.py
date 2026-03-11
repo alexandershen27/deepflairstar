@@ -14,29 +14,13 @@ from monai.transforms import (
     EnsureChannelFirstd,
     ScaleIntensityd,
     SpatialPadd,
+    SpatialCrop,
     SpatialCropd,
     RandFlipd,
     RandGaussianSmoothd,
-    RandCropByPosNegLabeld,
     EnsureTyped,
 )
 from monai.data import Dataset, CacheDataset, PersistentDataset, DataLoader
-
-class PatchFisherDataset(TorchDataset):
-    def __init__(self, base_dataset, samples_per_subject, transform=None):
-        self.base_dataset = base_dataset
-        self.samples = samples_per_subject
-        self.transform = transform
-
-    def __len__(self):
-        return len(self.base_dataset) * self.samples
-
-    def __getitem__(self, index):
-        subj_idx = index // self.samples
-        data = self.base_dataset[subj_idx]
-        if self.transform:
-            data = self.transform(data)
-        return data
 
 class GridPatchDataset(TorchDataset):
     def __init__(self, base_dataset, patch_coords, patch_size, transform=None):
@@ -56,20 +40,21 @@ class GridPatchDataset(TorchDataset):
         data = self.base_dataset[subj_idx]
         coord = self.patch_coords[coord_idx]
         
-        # Calculate roi_end for MONAI SpatialCropd
+        # Calculate roi_end for MONAI SpatialCrop
         roi_end = [c + p for c, p in zip(coord, self.patch_size)]
         
-        # Extract patch
-        cropper = SpatialCropd(
-            keys=["image", "label"],
-            roi_start=coord,
-            roi_end=roi_end
-        )
-        data = cropper(data)
+        # Create a new dictionary to avoid mutating the cached base_dataset
+        cropped_data = dict(data)
+        
+        # Extract patch using functional transform on tensors directly
+        cropper = SpatialCrop(roi_start=coord, roi_end=roi_end)
+        cropped_data["image"] = cropper(cropped_data["image"])
+        cropped_data["label"] = cropper(cropped_data["label"])
         
         if self.transform:
-            data = self.transform(data)
-        return data
+            cropped_data = self.transform(cropped_data)
+            
+        return cropped_data
 
 class DeepFLAIRDataModule(pl.LightningDataModule):
     def __init__(
@@ -84,8 +69,7 @@ class DeepFLAIRDataModule(pl.LightningDataModule):
         random_state: int = 42,
         cache_rate: float = 0.0,
         cache_dir: str = "outputs/monai_cache",
-        num_samples: int = 16,
-        sampling_type: str = "random",
+        sampling_stride: int = 32,
         pin_memory: bool = True,
     ):
         super().__init__()
@@ -100,9 +84,7 @@ class DeepFLAIRDataModule(pl.LightningDataModule):
         self.random_state = random_state
         self.cache_rate = cache_rate
         self.cache_dir = cache_dir
-        self.num_samples = num_samples
-        self.sampling_type = sampling_type
-        self.sampling_stride = 32
+        self.sampling_stride = sampling_stride
         self.pin_memory = pin_memory
 
     def _get_subject_list(self) -> List[Dict[str, str]]:
@@ -142,18 +124,21 @@ class DeepFLAIRDataModule(pl.LightningDataModule):
 
         if stage == "fit" or stage is None:
             base_train = self._get_base_dataset(train_files, self.get_volume_transforms())
-            if self.sampling_type == "grid":
-                coords = self._calculate_grid_coords(self.padding_size, self.patch_size, self.sampling_stride)
-                self.train_ds = GridPatchDataset(base_train, coords, self.patch_size, self.get_grid_patch_transforms())
-            else:
-                self.train_ds = PatchFisherDataset(base_train, self.num_samples, self.get_patch_transforms())
-            
+            coords = self._calculate_grid_coords(self.padding_size, self.patch_size, self.sampling_stride)
+            self.train_ds = GridPatchDataset(base_train, coords, self.patch_size, self.get_grid_patch_transforms())
             self.val_ds = self._get_base_dataset(val_files, self.get_volume_transforms())
         
         if stage == "test" or stage is None:
             self.test_ds = self._get_base_dataset(test_files, self.get_volume_transforms())
 
     def _get_base_dataset(self, files, transforms):
+        if self.cache_rate > 0.0:
+            return CacheDataset(
+                data=files,
+                transform=transforms,
+                cache_rate=self.cache_rate,
+                num_workers=self.num_workers
+            )
         return Dataset(data=files, transform=transforms)
 
     def get_volume_transforms(self):
@@ -162,22 +147,6 @@ class DeepFLAIRDataModule(pl.LightningDataModule):
             EnsureChannelFirstd(keys=["image", "label"]),
             ScaleIntensityd(keys=["image", "label"], minv=0.0, maxv=1.0),
             SpatialPadd(keys=["image", "label"], spatial_size=self.padding_size),
-            EnsureTyped(keys=["image", "label"]),
-        ])
-
-    def get_patch_transforms(self):
-        return Compose([
-            RandCropByPosNegLabeld(
-                keys=["image", "label"],
-                label_key="label",
-                spatial_size=self.patch_size,
-                pos=1, neg=0,
-                num_samples=1,
-                image_key="image",
-                image_threshold=0.03,
-            ),
-            RandFlipd(keys=["image", "label"], prob=0.5, spatial_axis=[0, 1]),
-            RandGaussianSmoothd(keys=["image"], sigma_x=(0.25, 1.5), sigma_y=(0.25, 1.5), sigma_z=(0.25, 1.5), prob=0.3),
             EnsureTyped(keys=["image", "label"]),
         ])
 

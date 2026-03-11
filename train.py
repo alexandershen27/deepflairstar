@@ -22,9 +22,7 @@ def main(args):
         batch_size=args.batch_size,
         patch_size=patch_size_tuple,
         num_workers=args.num_workers,
-        cache_rate=args.cache_rate,
-        num_samples=args.num_samples,
-        sampling_type=args.sampling_type
+        cache_rate=args.cache_rate
     )
     
     model = DeepFLAIRLightningModule(
@@ -40,7 +38,7 @@ def main(args):
     log_dir = os.path.abspath("logs/mlflow")
     os.makedirs(os.path.join(log_dir, "models"), exist_ok=True)
     
-    exp_name = args.experiment_name or f"DF_{args.model_type}_{args.sampling_type}_BS{args.batch_size}"
+    exp_name = args.experiment_name or f"DF_{args.model_type}_BS{args.batch_size}"
     
     tb_logger = TensorBoardLogger("logs", name=exp_name)
     ml_logger = MLFlowLogger(experiment_name=exp_name, save_dir=log_dir, log_model=True)
@@ -58,17 +56,10 @@ def main(args):
     )
     lr_monitor = LearningRateMonitor(logging_interval="step")
     
-    devices = args.devices
-    if isinstance(devices, str) and devices.isdigit():
-        devices = [int(devices)]
-    elif isinstance(devices, str) and "," in devices:
-        devices = [int(d.strip()) for d in devices.split(",")]
-    
     trainer = pl.Trainer(
         max_epochs=args.max_epochs,
-        accelerator="gpu" if torch.cuda.is_available() else "cpu",
-        devices=devices,
-        sync_batchnorm=True,
+        accelerator="auto",
+        devices=1,  # Enforce single device
         logger=[tb_logger, ml_logger],
         callbacks=[checkpoint_callback, lr_monitor],
         log_every_n_steps=1,
@@ -88,11 +79,9 @@ if __name__ == "__main__":
     parser = argparse.ArgumentParser()
     # Data params
     parser.add_argument("--data_dir", type=str, default="data")
-    parser.add_argument("--sampling_type", type=str, default="grid", choices=["random", "grid"])
     parser.add_argument("--batch_size", type=int, default=8)
     parser.add_argument("--patch_size", type=int, default=64)
     parser.add_argument("--num_workers", type=int, default=4)
-    parser.add_argument("--num_samples", type=int, default=16)
     parser.add_argument("--cache_rate", type=float, default=0.0)
     
     # Model params
@@ -108,7 +97,6 @@ if __name__ == "__main__":
     # Training runtime
     parser.add_argument("--experiment_name", type=str, default=None)
     parser.add_argument("--max_epochs", type=int, default=300)
-    parser.add_argument("--devices", type=str, default="auto")
     parser.add_argument("--ckpt_path", type=str, default=None)
     parser.add_argument("--test", action="store_true")
     

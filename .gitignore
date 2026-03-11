@@ -18,4 +18,5 @@ __pycache__/
 
 # Project Specific
 tests/
+tools/
 .vscode/

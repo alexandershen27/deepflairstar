@@ -18,12 +18,11 @@ class DeepFLAIRSwin(nn.Module):
             out_channels=out_channels,
             feature_size=feature_size,
             use_checkpoint=use_checkpoint,
-            norm_name="batch", # Per user requirement
+            norm_name="instance",
             spatial_dims=3,
         )
         
-        # Final projection: Direct ReLU
-        self.final_activation = nn.ReLU() # Forces output to be non-negative
+        self.final_activation = nn.ReLU() 
 
     def forward(self, x):
         x = self.swin(x)
