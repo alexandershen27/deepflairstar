@@ -70,7 +70,7 @@ class DeepFLAIRDataModule(pl.LightningDataModule):
         cache_rate: float = 0.0,
         cache_dir: str = "outputs/monai_cache",
         sampling_stride: int = 32,
-        pin_memory: bool = True,
+        pin_memory: bool = False,
     ):
         super().__init__()
         self.save_hyperparameters()
