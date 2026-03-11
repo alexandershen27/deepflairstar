@@ -9,6 +9,10 @@ from src.data import DeepFLAIRDataModule
 from src.lightning_module import DeepFLAIRLightningModule
 
 def main(args):
+    # Fix for 'too many fds' error when using CacheDataset and multiprocessing
+    import torch.multiprocessing as mp
+    mp.set_sharing_strategy('file_system')
+    
     # Fixed seed for reproducibility
     pl.seed_everything(42, workers=True)
     
