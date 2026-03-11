@@ -1,6 +1,7 @@
 import argparse
 import os
 import torch
+import torch.multiprocessing as mp
 import pytorch_lightning as pl
 from pytorch_lightning.loggers import TensorBoardLogger, MLFlowLogger
 from pytorch_lightning.callbacks import ModelCheckpoint, LearningRateMonitor
@@ -9,7 +10,7 @@ from src.data import DeepFLAIRDataModule
 from src.lightning_module import DeepFLAIRLightningModule
 
 def main(args):
-    # Fixed seed for reproducibility (dataset splits, etc.)
+    # Fixed seed for reproducibility
     pl.seed_everything(42, workers=True)
     
     # Performance boost for modern GPUs
@@ -40,7 +41,6 @@ def main(args):
     log_dir = os.path.abspath("logs/mlflow")
     os.makedirs(os.path.join(log_dir, "models"), exist_ok=True)
     
-    # Construct unique experiment name
     exp_name = args.experiment_name or f"DF_{args.model_type}_{args.sampling_type}_BS{args.batch_size}"
     
     tb_logger = TensorBoardLogger("logs", name=exp_name)
@@ -59,19 +59,11 @@ def main(args):
     )
     lr_monitor = LearningRateMonitor(logging_interval="step")
     
-    # Process devices: if it's a comma-separated string, convert it to a list of ints
     devices = args.devices
     if isinstance(devices, str) and devices.isdigit():
         devices = [int(devices)]
     elif isinstance(devices, str) and "," in devices:
         devices = [int(d.strip()) for d in devices.split(",")]
-    elif devices == "auto":
-        devices = "auto"
-    else:
-        try:
-            devices = [int(devices)]
-        except:
-            devices = "auto"
     
     trainer = pl.Trainer(
         max_epochs=args.max_epochs,
@@ -94,22 +86,28 @@ def main(args):
         trainer.fit(model, datamodule=dm, ckpt_path=args.ckpt_path)
 
 if __name__ == "__main__":
+    # Force 'spawn' method for DDP stability on Python 3.14/Ubuntu
+    try:
+        mp.set_start_method('spawn', force=True)
+    except RuntimeError:
+        pass
+        
     parser = argparse.ArgumentParser()
     # Data params
     parser.add_argument("--data_dir", type=str, default="data")
     parser.add_argument("--sampling_type", type=str, default="grid", choices=["random", "grid"])
     parser.add_argument("--batch_size", type=int, default=8)
     parser.add_argument("--patch_size", type=int, default=64)
-    parser.add_argument("--num_workers", type=int, default=16)
+    parser.add_argument("--num_workers", type=int, default=4) # Balanced default
     parser.add_argument("--num_samples", type=int, default=16)
-    parser.add_argument("--cache_rate", type=float, default=1.0)
+    parser.add_argument("--cache_rate", type=float, default=0.0)
     
     # Model params
     parser.add_argument("--model_type", type=str, default="unet")
     parser.add_argument("--base_channels", type=int, default=16)
     parser.add_argument("--lr", type=float, default=1e-4)
     
-    # Loss weights (Defaulting to MSE + SSIM + GRAD only)
+    # Loss weights
     parser.add_argument("--mse_weight", type=float, default=1.0)
     parser.add_argument("--ssim_weight", type=float, default=1.0)
     parser.add_argument("--grad_weight", type=float, default=1.0)
