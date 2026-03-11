@@ -43,17 +43,13 @@ class DeepFLAIRLightningModule(pl.LightningModule):
         )
         
         # Register 3D Hann Window as a buffer so it moves to GPU automatically
-        # Shape: [1, D, H, W] - MONAI functional API expects this for single-channel weighting
         self.register_buffer("hann_window", self._generate_3d_hann(patch_size))
 
     def _generate_3d_hann(self, patch_size):
-        # Create 1D Hann windows
         w_d = torch.hann_window(patch_size[0], periodic=False)
         w_h = torch.hann_window(patch_size[1], periodic=False)
         w_w = torch.hann_window(patch_size[2], periodic=False)
-        # Create 3D window by outer product
         window_3d = w_d.view(-1, 1, 1) * w_h.view(1, -1, 1) * w_w.view(1, 1, -1)
-        # MONAI expects [1, D, H, W] for the roi_weight_map
         return window_3d.unsqueeze(0)
 
     def forward(self, x):
@@ -72,11 +68,12 @@ class DeepFLAIRLightningModule(pl.LightningModule):
         
         self.log("train_loss", loss, prog_bar=True, on_step=True, on_epoch=True, sync_dist=True, batch_size=bs)
         self.log("train_mse", metrics["mse"], sync_dist=True, batch_size=bs)
+        self.log("train_ssim", metrics["ssim_loss"], sync_dist=True, batch_size=bs)
+        self.log("train_grad", metrics["grad_loss"], sync_dist=True, batch_size=bs)
         return loss
 
     def validation_step(self, batch, batch_idx):
         x, y = batch["image"], batch["label"]
-        # Use functional sliding_window_inference to avoid API version conflicts
         y_hat = sliding_window_inference(
             inputs=x,
             roi_size=self.hparams.patch_size,
@@ -91,6 +88,8 @@ class DeepFLAIRLightningModule(pl.LightningModule):
         
         self.log("val_loss", loss, prog_bar=True, sync_dist=True, batch_size=bs)
         self.log("val_mse", metrics["mse"], sync_dist=True, batch_size=bs)
+        self.log("val_ssim", metrics["ssim_loss"], sync_dist=True, batch_size=bs)
+        self.log("val_grad", metrics["grad_loss"], sync_dist=True, batch_size=bs)
         
         if batch_idx == 0:
             self._log_images(x, y, y_hat, "val")
@@ -98,7 +97,6 @@ class DeepFLAIRLightningModule(pl.LightningModule):
 
     def test_step(self, batch, batch_idx):
         x, y = batch["image"], batch["label"]
-        # Use functional sliding_window_inference to avoid API version conflicts
         y_hat = sliding_window_inference(
             inputs=x,
             roi_size=self.hparams.patch_size,
@@ -116,6 +114,7 @@ class DeepFLAIRLightningModule(pl.LightningModule):
         self.log("test_mse", metrics["mse"], sync_dist=True, batch_size=bs)
         self.log("test_psnr", psnr, sync_dist=True, batch_size=bs)
         self.log("test_ssim", metrics["ssim_loss"], sync_dist=True, batch_size=bs)
+        self.log("test_grad", metrics["grad_loss"], sync_dist=True, batch_size=bs)
         
         self._save_test_result(batch, y_hat)
         
