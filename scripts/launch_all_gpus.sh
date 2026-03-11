@@ -31,7 +31,7 @@ tmux send-keys -t $SESSION_MLFLOW \
 # GPU 0 — CNN U-Net (BS=16, repeat=8 → 32 iters/epoch)
 tmux new-session -d -s $SESSION_UNET
 tmux send-keys -t $SESSION_UNET \
-    "cd $REPO_DIR && CUDA_VISIBLE_DEVICES=0 $PYTHON train.py \
+    "cd $REPO_DIR && CUDA_VISIBLE_DEVICES=0 $PYTHON -m src.train \
     --model_type unet \
     --batch_size 16 \
     --base_channels 16 \
@@ -43,7 +43,7 @@ tmux send-keys -t $SESSION_UNET \
 # GPU 1 — Swin-UNETR (BS=2, repeat=1 → 32 iters/epoch naturally)
 tmux new-session -d -s $SESSION_SWIN
 tmux send-keys -t $SESSION_SWIN \
-    "cd $REPO_DIR && CUDA_VISIBLE_DEVICES=1 $PYTHON train.py \
+    "cd $REPO_DIR && CUDA_VISIBLE_DEVICES=1 $PYTHON -m src.train \
     --model_type swin \
     --batch_size 2 \
     --base_channels 24 \
@@ -54,7 +54,7 @@ tmux send-keys -t $SESSION_SWIN \
 # GPU 2 — Attention U-Net (BS=16, repeat=8 → 32 iters/epoch)
 tmux new-session -d -s $SESSION_ATTN
 tmux send-keys -t $SESSION_ATTN \
-    "cd $REPO_DIR && CUDA_VISIBLE_DEVICES=2 $PYTHON train.py \
+    "cd $REPO_DIR && CUDA_VISIBLE_DEVICES=2 $PYTHON -m src.train \
     --model_type attention_unet \
     --batch_size 16 \
     --base_channels 16 \
@@ -66,7 +66,7 @@ tmux send-keys -t $SESSION_ATTN \
 # GPU 3 — UNETR++ with VFA (BS=32, repeat=16 → 32 iters/epoch, ~1.2M params)
 tmux new-session -d -s $SESSION_UNETRPP
 tmux send-keys -t $SESSION_UNETRPP \
-    "cd $REPO_DIR && CUDA_VISIBLE_DEVICES=3 $PYTHON train.py \
+    "cd $REPO_DIR && CUDA_VISIBLE_DEVICES=3 $PYTHON -m src.train \
     --model_type unetrpp \
     --batch_size 32 \
     --base_channels 32 \
