@@ -3,6 +3,7 @@ import numpy as np
 import pytorch_lightning as pl
 import os
 import matplotlib.pyplot as plt
+import nibabel as nib
 from monai.inferers import SlidingWindowInferer
 
 # Multi-Model Imports
@@ -40,18 +41,34 @@ class DeepFLAIRLightningModule(pl.LightningModule):
             grad_weight=grad_weight
         )
         
+        # Replicating Paper: 3D Hann overlap-add window
+        # We define the inferer here, but we will pass the Hann window during the call
         self.inferer = SlidingWindowInferer(
             roi_size=tuple(patch_size),
             sw_batch_size=4,
-            overlap=(0.5, 0.5, 0.5),
-            mode="gaussian"
+            overlap=0.5, # 50% overlap as per standard Hann overlap-add
+            mode="constant" 
         )
+
+        # Create 3D Hann Window for blending
+        # Registered as buffer so it moves to GPU automatically
+        self.register_buffer("hann_window", self._generate_3d_hann(patch_size))
+
+    def _generate_3d_hann(self, patch_size):
+        # Create 1D Hann windows for each dimension
+        w_d = torch.hann_window(patch_size[0], periodic=False)
+        w_h = torch.hann_window(patch_size[1], periodic=False)
+        w_w = torch.hann_window(patch_size[2], periodic=False)
+        # Create 3D window by outer product
+        # Shape: [D, H, W]
+        window_3d = w_d.view(-1, 1, 1) * w_h.view(1, -1, 1) * w_w.view(1, 1, -1)
+        # Add channel dim to match model output [1, C, D, H, W]
+        return window_3d.unsqueeze(0).unsqueeze(0)
 
     def forward(self, x):
         return self.model(x)
 
     def _calculate_psnr(self, mse_loss):
-        # Assumes data is scaled [0, 1]
         if mse_loss == 0:
             return 100.0
         return 20 * torch.log10(1.0 / torch.sqrt(mse_loss))
@@ -71,7 +88,8 @@ class DeepFLAIRLightningModule(pl.LightningModule):
 
     def validation_step(self, batch, batch_idx):
         x, y = batch["image"], batch["label"]
-        y_hat = self.inferer(x, self.model)
+        # Use custom Hann window for blending
+        y_hat = self.inferer(x, self.model, predictor_importance_map=self.hann_window)
         loss, metrics = self.loss_fn(y_hat, y)
         bs = x.shape[0]
         psnr = self._calculate_psnr(metrics["mse"])
@@ -87,7 +105,8 @@ class DeepFLAIRLightningModule(pl.LightningModule):
 
     def test_step(self, batch, batch_idx):
         x, y = batch["image"], batch["label"]
-        y_hat = self.inferer(x, self.model)
+        # Use custom Hann window for blending
+        y_hat = self.inferer(x, self.model, predictor_importance_map=self.hann_window)
         loss, metrics = self.loss_fn(y_hat, y)
         bs = x.shape[0]
         psnr = self._calculate_psnr(metrics["mse"])
@@ -98,9 +117,57 @@ class DeepFLAIRLightningModule(pl.LightningModule):
         self.log("test_psnr", psnr, sync_dist=True, batch_size=bs)
         self.log("test_ssim", metrics["ssim_loss"], sync_dist=True, batch_size=bs)
         
+        # Save qualitative results (NIfTI) - Match paper methodology
+        self._save_test_result(batch, y_hat)
+        
         if batch_idx == 0:
             self._log_images(x, y, y_hat, "test")
         return loss
+
+    def _save_test_result(self, batch, y_hat):
+        save_dir = os.path.join("outputs", "test_results")
+        if self.logger and hasattr(self.logger, "name"):
+            save_dir = os.path.join("outputs", self.logger.name, "test_outputs")
+        os.makedirs(save_dir, exist_ok=True)
+        
+        # MONAI LoadImaged stores metadata in the 'image' tensor itself as a MetaTensor
+        # or in 'image_meta_dict' for older versions/PL batching
+        img_tensor = batch["image"]
+        subj_id = batch.get("subject_id", ["unknown"])[0]
+        
+        # Get original shape and affine
+        # PL might have moved metadata to a separate dict
+        meta_dict = batch.get("image_meta_dict", {})
+        
+        # Original spatial shape (before padding)
+        # Note: LoadImaged adds 'spatial_shape' to meta
+        orig_shape = meta_dict.get("spatial_shape", None)
+        output_vol = y_hat[0, 0].detach().cpu().numpy()
+        
+        if orig_shape is not None:
+            # Handle potential batching of metadata
+            s = orig_shape[0].tolist() if torch.is_tensor(orig_shape) else orig_shape
+            p = output_vol.shape # Padded shape
+            
+            # Replicate MONAI's symmetric padding logic for cropping
+            # pad_before = (P - S) // 2
+            starts = [(pi - si) // 2 for pi, si in zip(p, s)]
+            output_vol = output_vol[
+                starts[0] : starts[0] + s[0],
+                starts[1] : starts[1] + s[1],
+                starts[2] : starts[2] + s[2]
+            ]
+        
+        # Original affine matrix
+        affine = meta_dict.get("affine", None)
+        if affine is not None:
+            affine = affine[0].cpu().numpy() if torch.is_tensor(affine) else affine
+        else:
+            affine = np.eye(4)
+            
+        new_img = nib.Nifti1Image(output_vol, affine)
+        save_path = os.path.join(save_dir, f"{subj_id}_synthetic_flair.nii.gz")
+        nib.save(new_img, save_path)
 
     def _log_images(self, x, y, y_hat, stage):
         if not self.trainer.is_global_zero:
@@ -122,10 +189,8 @@ class DeepFLAIRLightningModule(pl.LightningModule):
             for ax in axes[i]: ax.axis('off')
         plt.tight_layout()
         
-        # Log to loggers
         for logger in self.loggers:
             if isinstance(logger, pl.loggers.MLFlowLogger):
-                # Save temp image for MLFlow
                 tmp_path = f"tmp_vis_{self.global_rank}_{stage}.png"
                 plt.savefig(tmp_path)
                 logger.experiment.log_artifact(run_id=logger.run_id, local_path=tmp_path, artifact_path="visualizations")
