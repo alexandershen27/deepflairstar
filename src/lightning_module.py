@@ -112,8 +112,8 @@ class DeepFLAIRLightningModule(pl.LightningModule):
             fig, axes = plt.subplots(3, 2, figsize=(8, 12)) 
             
             for i, (lbl, pred, title) in enumerate(views):
-                axes[i, 0].imshow(lbl, cmap='gray'); axes[i, 0].set_title(f"GT {title}"); axes[i, 0].axis('off')
-                axes[i, 1].imshow(pred, cmap='gray'); axes[i, 1].set_title(f"Pred {title}"); axes[i, 1].axis('off')
+                axes[i, 0].imshow(lbl, cmap='gray', vmin=0, vmax=1); axes[i, 0].set_title(f"GT {title}"); axes[i, 0].axis('off')
+                axes[i, 1].imshow(pred, cmap='gray', vmin=0, vmax=1); axes[i, 1].set_title(f"Pred {title}"); axes[i, 1].axis('off')
             plt.tight_layout()
             
             for logger in loggers:
