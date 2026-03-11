@@ -39,23 +39,28 @@ class DeepFLAIRLightningModule(pl.LightningModule):
             grad_weight=grad_weight
         )
         
+        # Create 3D Hann Window for blending
+        hann_map = self._generate_3d_hann(patch_size)
+        
         # Replicating Paper: 3D Hann overlap-add window
+        # Fixed: Pass the pre-computed Hann map as 'roi_weight_map'
         self.inferer = SlidingWindowInferer(
             roi_size=tuple(patch_size),
             sw_batch_size=4,
             overlap=0.5,
+            roi_weight_map=hann_map,
             mode="constant" 
         )
 
-        # Create 3D Hann Window for blending
-        self.register_buffer("hann_window", self._generate_3d_hann(patch_size))
-
     def _generate_3d_hann(self, patch_size):
+        # Create 1D Hann windows
         w_d = torch.hann_window(patch_size[0], periodic=False)
         w_h = torch.hann_window(patch_size[1], periodic=False)
         w_w = torch.hann_window(patch_size[2], periodic=False)
+        # Create 3D window by outer product
         window_3d = w_d.view(-1, 1, 1) * w_h.view(1, -1, 1) * w_w.view(1, 1, -1)
-        return window_3d.unsqueeze(0).unsqueeze(0)
+        # MONAI expects [1, D, H, W] for the roi_weight_map
+        return window_3d.unsqueeze(0)
 
     def forward(self, x):
         return self.model(x)
@@ -77,7 +82,8 @@ class DeepFLAIRLightningModule(pl.LightningModule):
 
     def validation_step(self, batch, batch_idx):
         x, y = batch["image"], batch["label"]
-        y_hat = self.inferer(x, self.model, predictor_importance_map=self.hann_window)
+        # Simplified: Inferer already has the weight map
+        y_hat = self.inferer(x, self.model)
         loss, metrics = self.loss_fn(y_hat, y)
         bs = x.shape[0]
         
@@ -90,7 +96,8 @@ class DeepFLAIRLightningModule(pl.LightningModule):
 
     def test_step(self, batch, batch_idx):
         x, y = batch["image"], batch["label"]
-        y_hat = self.inferer(x, self.model, predictor_importance_map=self.hann_window)
+        # Simplified: Inferer already has the weight map
+        y_hat = self.inferer(x, self.model)
         loss, metrics = self.loss_fn(y_hat, y)
         bs = x.shape[0]
         psnr = self._calculate_psnr(metrics["mse"])
