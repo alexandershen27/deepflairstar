@@ -39,18 +39,16 @@ class DeepFLAIRLightningModule(pl.LightningModule):
             grad_weight=grad_weight
         )
         
-        # Create 3D Hann Window for blending
-        hann_map = self._generate_3d_hann(patch_size)
-        
-        # Replicating Paper: 3D Hann overlap-add window
-        # Fixed: Pass the pre-computed Hann map as 'roi_weight_map'
+        # Initialize the inferer WITHOUT the weight map to avoid API version conflicts
         self.inferer = SlidingWindowInferer(
             roi_size=tuple(patch_size),
             sw_batch_size=4,
             overlap=0.5,
-            roi_weight_map=hann_map,
             mode="constant" 
         )
+
+        # Register 3D Hann Window as a buffer so it moves to GPU automatically
+        self.register_buffer("hann_window", self._generate_3d_hann(patch_size))
 
     def _generate_3d_hann(self, patch_size):
         # Create 1D Hann windows
@@ -59,7 +57,7 @@ class DeepFLAIRLightningModule(pl.LightningModule):
         w_w = torch.hann_window(patch_size[2], periodic=False)
         # Create 3D window by outer product
         window_3d = w_d.view(-1, 1, 1) * w_h.view(1, -1, 1) * w_w.view(1, 1, -1)
-        # MONAI expects [1, D, H, W] for the roi_weight_map
+        # Add channel dim: MONAI expects [1, D, H, W] or [C, D, H, W]
         return window_3d.unsqueeze(0)
 
     def forward(self, x):
@@ -82,8 +80,8 @@ class DeepFLAIRLightningModule(pl.LightningModule):
 
     def validation_step(self, batch, batch_idx):
         x, y = batch["image"], batch["label"]
-        # Simplified: Inferer already has the weight map
-        y_hat = self.inferer(x, self.model)
+        # Pass the GPU-bound buffer during the call via roi_weight_map
+        y_hat = self.inferer(x, self.model, roi_weight_map=self.hann_window)
         loss, metrics = self.loss_fn(y_hat, y)
         bs = x.shape[0]
         
@@ -96,8 +94,8 @@ class DeepFLAIRLightningModule(pl.LightningModule):
 
     def test_step(self, batch, batch_idx):
         x, y = batch["image"], batch["label"]
-        # Simplified: Inferer already has the weight map
-        y_hat = self.inferer(x, self.model)
+        # Pass the GPU-bound buffer during the call via roi_weight_map
+        y_hat = self.inferer(x, self.model, roi_weight_map=self.hann_window)
         loss, metrics = self.loss_fn(y_hat, y)
         bs = x.shape[0]
         psnr = self._calculate_psnr(metrics["mse"])
