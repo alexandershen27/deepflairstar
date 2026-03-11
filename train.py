@@ -1,7 +1,6 @@
 import argparse
 import os
 import torch
-import torch.multiprocessing as mp
 import pytorch_lightning as pl
 from pytorch_lightning.loggers import TensorBoardLogger, MLFlowLogger
 from pytorch_lightning.callbacks import ModelCheckpoint, LearningRateMonitor
@@ -86,19 +85,13 @@ def main(args):
         trainer.fit(model, datamodule=dm, ckpt_path=args.ckpt_path)
 
 if __name__ == "__main__":
-    # Force 'spawn' method for DDP stability on Python 3.14/Ubuntu
-    try:
-        mp.set_start_method('spawn', force=True)
-    except RuntimeError:
-        pass
-        
     parser = argparse.ArgumentParser()
     # Data params
     parser.add_argument("--data_dir", type=str, default="data")
     parser.add_argument("--sampling_type", type=str, default="grid", choices=["random", "grid"])
     parser.add_argument("--batch_size", type=int, default=8)
     parser.add_argument("--patch_size", type=int, default=64)
-    parser.add_argument("--num_workers", type=int, default=4) # Balanced default
+    parser.add_argument("--num_workers", type=int, default=4)
     parser.add_argument("--num_samples", type=int, default=16)
     parser.add_argument("--cache_rate", type=float, default=0.0)
     
