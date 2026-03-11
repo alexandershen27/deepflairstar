@@ -78,15 +78,15 @@ class DeepFLAIRDataModule(pl.LightningDataModule):
         batch_size: int = 4,
         patch_size: Sequence[int] = (64, 64, 64),
         padding_size: Sequence[int] = (320, 384, 320),
-        num_workers: int = 8, # 8 per GPU x 4 GPUs = 32 Total (matches CPU cores)
+        num_workers: int = 2, # Reduced to 2 per GPU for stability
         val_split: float = 0.1,
         test_split: float = 0.2,
         random_state: int = 42,
-        cache_rate: float = 0.0, # Disabled for stable DDP startup
+        cache_rate: float = 0.0,
         cache_dir: str = "outputs/monai_cache",
         num_samples: int = 16,
         sampling_type: str = "random",
-        pin_memory: bool = True,
+        pin_memory: bool = False, # Disabled to avoid "Pin memory thread exited" error
     ):
         super().__init__()
         self.save_hyperparameters()
@@ -141,7 +141,6 @@ class DeepFLAIRDataModule(pl.LightningDataModule):
         )
 
         if stage == "fit" or stage is None:
-            # Reverting to standard Dataset for the most robust DDP startup
             base_train = self._get_base_dataset(train_files, self.get_volume_transforms())
             if self.sampling_type == "grid":
                 coords = self._calculate_grid_coords(self.padding_size, self.patch_size, self.sampling_stride)
@@ -155,7 +154,6 @@ class DeepFLAIRDataModule(pl.LightningDataModule):
             self.test_ds = self._get_base_dataset(test_files, self.get_volume_transforms())
 
     def _get_base_dataset(self, files, transforms):
-        # Using standard Dataset for debugging DDP stability
         return Dataset(data=files, transform=transforms)
 
     def get_volume_transforms(self):
