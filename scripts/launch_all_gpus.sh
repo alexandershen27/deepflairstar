@@ -40,16 +40,15 @@ tmux send-keys -t $SESSION_UNET \
     --experiment_name DF_unet_BS16 \
     --num_workers 4" Enter
 
-# GPU 1 — Swin-UNETR (BS=4, repeat=2 → 32 iters/epoch)
+# GPU 1 — Swin-UNETR (BS=2, repeat=1 → 32 iters/epoch naturally)
 tmux new-session -d -s $SESSION_SWIN
 tmux send-keys -t $SESSION_SWIN \
     "cd $REPO_DIR && CUDA_VISIBLE_DEVICES=1 $PYTHON train.py \
     --model_type swin \
-    --batch_size 4 \
+    --batch_size 2 \
     --base_channels 24 \
     --max_epochs 300 \
-    --repeat_dataset 2 \
-    --experiment_name DF_swin_BS4 \
+    --experiment_name DF_swin_BS2 \
     --num_workers 4" Enter
 
 # GPU 2 — Attention U-Net (BS=16, repeat=8 → 32 iters/epoch)
