@@ -26,7 +26,8 @@ def main(args):
         batch_size=args.batch_size,
         patch_size=patch_size_tuple,
         num_workers=args.num_workers,
-        cache_rate=args.cache_rate
+        cache_rate=args.cache_rate,
+        repeat_dataset=args.repeat_dataset,
     )
     
     model = DeepFLAIRLightningModule(
@@ -88,6 +89,7 @@ if __name__ == "__main__":
     parser.add_argument("--patch_size", type=int, default=64)
     parser.add_argument("--num_workers", type=int, default=4)
     parser.add_argument("--cache_rate", type=float, default=0.0)
+    parser.add_argument("--repeat_dataset", type=int, default=1)
     
     # Model params
     parser.add_argument("--model_type", type=str, default="unet", choices=["unet", "swin", "attention_unet", "unetr"])

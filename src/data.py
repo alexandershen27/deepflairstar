@@ -76,6 +76,7 @@ class DeepFLAIRDataModule(pl.LightningDataModule):
         samples_per_volume: int = 4,
         sampling_stride: int = 32, # Kept for backward compatibility
         pin_memory: bool = False,
+        repeat_dataset: int = 1,
     ):
         super().__init__()
         self.save_hyperparameters()
@@ -90,6 +91,7 @@ class DeepFLAIRDataModule(pl.LightningDataModule):
         self.cache_rate = cache_rate
         self.cache_dir = cache_dir
         self.samples_per_volume = samples_per_volume
+        self.repeat_dataset = repeat_dataset
         self.sampling_stride = sampling_stride
         self.pin_memory = pin_memory
 
@@ -129,7 +131,7 @@ class DeepFLAIRDataModule(pl.LightningDataModule):
         )
 
         if stage == "fit" or stage is None:
-            self.train_ds = self._get_base_dataset(train_files, self.get_train_transforms())
+            self.train_ds = self._get_base_dataset(train_files * self.repeat_dataset, self.get_train_transforms())
             self.val_ds = self._get_base_dataset(val_files, self.get_val_transforms())
         
         if stage == "test" or stage is None:
