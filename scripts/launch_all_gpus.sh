@@ -19,17 +19,17 @@ for s in $SESSION_UNET $SESSION_SWIN $SESSION_ATTN; do
     tmux kill-session -t $s 2>/dev/null || true
 done
 
-# GPU 0 — CNN U-Net (batch 16, repeat x8 → ~32 iters/epoch)
+# GPU 0 — CNN U-Net (batch 32, repeat x16 → ~32 iters/epoch)
 tmux new-session -d -s $SESSION_UNET
 tmux send-keys -t $SESSION_UNET \
     "CUDA_VISIBLE_DEVICES=0 $PYTHON train.py \
     --model_type unet \
-    --batch_size 16 \
+    --batch_size 32 \
     --base_channels 16 \
     --max_epochs 75 \
-    --repeat_dataset 8 \
-    --experiment_name DF_unet_BS16 \
-    --num_workers 4" Enter
+    --repeat_dataset 16 \
+    --experiment_name DF_unet_BS32 \
+    --num_workers 8" Enter
 
 # GPU 1 — Swin-UNETR (batch 2, already ~32 iters/epoch naturally)
 tmux new-session -d -s $SESSION_SWIN
@@ -40,19 +40,19 @@ tmux send-keys -t $SESSION_SWIN \
     --base_channels 24 \
     --max_epochs 75 \
     --experiment_name DF_swin_BS2 \
-    --num_workers 4" Enter
+    --num_workers 8" Enter
 
-# GPU 2 — Attention U-Net (batch 8, repeat x4 → ~32 iters/epoch)
+# GPU 2 — Attention U-Net (batch 32, repeat x16 → ~32 iters/epoch)
 tmux new-session -d -s $SESSION_ATTN
 tmux send-keys -t $SESSION_ATTN \
     "CUDA_VISIBLE_DEVICES=2 $PYTHON train.py \
     --model_type attention_unet \
-    --batch_size 8 \
+    --batch_size 32 \
     --base_channels 16 \
     --max_epochs 75 \
-    --repeat_dataset 4 \
-    --experiment_name DF_attention_unet_BS8 \
-    --num_workers 4" Enter
+    --repeat_dataset 16 \
+    --experiment_name DF_attention_unet_BS32 \
+    --num_workers 8" Enter
 
 echo "3 sessions launched. Monitor with:"
 echo "  tmux attach -t unet"
