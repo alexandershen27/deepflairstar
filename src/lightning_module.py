@@ -103,36 +103,40 @@ class DeepFLAIRLightningModule(pl.LightningModule):
         lbl_vol = y[0, 0].detach().cpu().float().numpy()
         pred_vol = y_hat[0, 0].detach().cpu().float().numpy()
 
-        loggers = self.loggers if isinstance(self.loggers, (list, tuple)) else ([self.logger] if self.logger else [])
-        current_step = self.global_step
+        # Use centroid of foreground voxels so we don't slice through padding
+        nonzero = np.argwhere(lbl_vol > 0.03)
+        if len(nonzero) > 0:
+            c = nonzero.mean(axis=0).astype(int).tolist()
+        else:
+            c = [s // 2 for s in lbl_vol.shape]
 
-        c = [s // 2 for s in lbl_vol.shape]
         views = [
             (lbl_vol[c[0], :, :], pred_vol[c[0], :, :], "Axial"),
             (lbl_vol[:, c[1], :], pred_vol[:, c[1], :], "Sagittal"),
             (lbl_vol[:, :, c[2]], pred_vol[:, :, c[2]], "Coronal"),
         ]
 
+        epoch = self.current_epoch
         fig, axes = plt.subplots(3, 2, figsize=(8, 12))
         for i, (lbl, pred, title) in enumerate(views):
-            # GT: fixed [0,1] scale; Pred: auto-scaled so structure is always visible
-            axes[i, 0].imshow(lbl, cmap='gray', vmin=0, vmax=1)
+            axes[i, 0].imshow(lbl, cmap='gray')
             axes[i, 0].set_title(f"GT {title}")
             axes[i, 0].axis('off')
             axes[i, 1].imshow(pred, cmap='gray')
-            axes[i, 1].set_title(f"Pred {title} [{pred.min():.2f},{pred.max():.2f}]")
+            axes[i, 1].set_title(f"Pred {title} E{epoch:03d} [{pred.min():.2f},{pred.max():.2f}]")
             axes[i, 1].axis('off')
         plt.tight_layout()
 
+        os.makedirs("vis", exist_ok=True)
+        save_path = f"vis/epoch_{epoch:03d}_{stage}_3view.png"
+        plt.savefig(save_path)
+
+        loggers = self.loggers if isinstance(self.loggers, (list, tuple)) else ([self.logger] if self.logger else [])
         for logger in loggers:
             if isinstance(logger, pl.loggers.MLFlowLogger):
-                tmp_path = f"tmp_vis_{stage}_{current_step}.png"
-                plt.savefig(tmp_path)
-                logger.experiment.log_artifact(run_id=logger.run_id, local_path=tmp_path, artifact_path="visualizations")
-                if os.path.exists(tmp_path):
-                    os.remove(tmp_path)
+                logger.experiment.log_artifact(run_id=logger.run_id, local_path=save_path, artifact_path="visualizations")
             elif isinstance(logger, pl.loggers.TensorBoardLogger):
-                logger.experiment.add_figure(f"{stage}_3view", fig, global_step=current_step)
+                logger.experiment.add_figure(f"{stage}_3view", fig, global_step=epoch)
 
         plt.close(fig)
 
