@@ -32,7 +32,6 @@ def main(args):
         base_channels=args.base_channels,
         lr=args.lr,
         mse_weight=args.mse_weight,
-        l1_weight=args.l1_weight,
         ssim_weight=args.ssim_weight,
         grad_weight=args.grad_weight,
         patch_size=patch_size_tuple
@@ -69,7 +68,6 @@ def main(args):
     elif devices == "auto":
         devices = "auto"
     else:
-        # Fallback for complex strings or single digits not caught above
         try:
             devices = [int(devices)]
         except:
@@ -113,7 +111,6 @@ if __name__ == "__main__":
     
     # Loss weights (Defaulting to MSE + SSIM + GRAD only)
     parser.add_argument("--mse_weight", type=float, default=1.0)
-    parser.add_argument("--l1_weight", type=float, default=0.0)
     parser.add_argument("--ssim_weight", type=float, default=1.0)
     parser.add_argument("--grad_weight", type=float, default=1.0)
     

@@ -24,31 +24,25 @@ class GradientLoss(nn.Module):
         return (loss_x + loss_y + loss_z) / 3.0
 
 class DeepFLAIRLoss(nn.Module):
-    def __init__(self, mse_weight=1.0, l1_weight=1.0, ssim_weight=1.0, grad_weight=1.0):
+    def __init__(self, mse_weight=1.0, ssim_weight=1.0, grad_weight=1.0):
         super().__init__()
         # 1. MSE Loss for large-scale error penalization
         self.mse = nn.MSELoss()
 
-        # 2. L1 Loss for better signal in dark regions
-        self.l1 = nn.L1Loss()
-
-        # 3. Restoration: Using standard 1.0 range for stability
+        # 2. Restoration: Using standard 1.0 range for stability
         self.ssim = SSIMLoss(spatial_dims=3, data_range=1.0)
 
         self.grad = GradientLoss()
 
         self.w_mse = mse_weight
-        self.w_l1 = l1_weight
         self.w_ssim = ssim_weight
         self.w_grad = grad_weight
 
     def forward(self, y_pred, y_true):
         l_mse = self.mse(y_pred, y_true)
-        l_l1 = self.l1(y_pred, y_true)
         l_ssim = self.ssim(y_pred, y_true)
         l_grad = self.grad(y_pred, y_true)
 
-        total_loss = (self.w_mse * l_mse) + (self.w_l1 * l_l1) + (self.w_ssim * l_ssim) + (self.w_grad * l_grad)
+        total_loss = (self.w_mse * l_mse) + (self.w_ssim * l_ssim) + (self.w_grad * l_grad)
 
-        return total_loss, {"mse": l_mse, "l1": l_l1, "ssim_loss": l_ssim, "grad_loss": l_grad}
-
+        return total_loss, {"mse": l_mse, "ssim_loss": l_ssim, "grad_loss": l_grad}

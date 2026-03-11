@@ -20,7 +20,6 @@ class DeepFLAIRLightningModule(pl.LightningModule):
         beta1: float = 0.5,
         beta2: float = 0.999,
         mse_weight: float = 1.0,
-        l1_weight: float = 1.0,
         ssim_weight: float = 1.0,
         grad_weight: float = 1.0,
         patch_size: tuple = (64, 64, 64),
@@ -36,33 +35,26 @@ class DeepFLAIRLightningModule(pl.LightningModule):
             
         self.loss_fn = DeepFLAIRLoss(
             mse_weight=mse_weight,
-            l1_weight=l1_weight,
             ssim_weight=ssim_weight, 
             grad_weight=grad_weight
         )
         
         # Replicating Paper: 3D Hann overlap-add window
-        # We define the inferer here, but we will pass the Hann window during the call
         self.inferer = SlidingWindowInferer(
             roi_size=tuple(patch_size),
             sw_batch_size=4,
-            overlap=0.5, # 50% overlap as per standard Hann overlap-add
+            overlap=0.5,
             mode="constant" 
         )
 
         # Create 3D Hann Window for blending
-        # Registered as buffer so it moves to GPU automatically
         self.register_buffer("hann_window", self._generate_3d_hann(patch_size))
 
     def _generate_3d_hann(self, patch_size):
-        # Create 1D Hann windows for each dimension
         w_d = torch.hann_window(patch_size[0], periodic=False)
         w_h = torch.hann_window(patch_size[1], periodic=False)
         w_w = torch.hann_window(patch_size[2], periodic=False)
-        # Create 3D window by outer product
-        # Shape: [D, H, W]
         window_3d = w_d.view(-1, 1, 1) * w_h.view(1, -1, 1) * w_w.view(1, 1, -1)
-        # Add channel dim to match model output [1, C, D, H, W]
         return window_3d.unsqueeze(0).unsqueeze(0)
 
     def forward(self, x):
@@ -78,26 +70,19 @@ class DeepFLAIRLightningModule(pl.LightningModule):
         y_hat = self.model(x)
         loss, metrics = self.loss_fn(y_hat, y)
         bs = x.shape[0]
-        psnr = self._calculate_psnr(metrics["mse"])
         
         self.log("train_loss", loss, prog_bar=True, on_step=True, on_epoch=True, sync_dist=True, batch_size=bs)
-        self.log("train_l1", metrics["l1"], sync_dist=True, batch_size=bs)
         self.log("train_mse", metrics["mse"], sync_dist=True, batch_size=bs)
-        self.log("train_psnr", psnr, sync_dist=True, batch_size=bs)
         return loss
 
     def validation_step(self, batch, batch_idx):
         x, y = batch["image"], batch["label"]
-        # Use custom Hann window for blending
         y_hat = self.inferer(x, self.model, predictor_importance_map=self.hann_window)
         loss, metrics = self.loss_fn(y_hat, y)
         bs = x.shape[0]
-        psnr = self._calculate_psnr(metrics["mse"])
         
         self.log("val_loss", loss, prog_bar=True, sync_dist=True, batch_size=bs)
-        self.log("val_l1", metrics["l1"], sync_dist=True, batch_size=bs)
         self.log("val_mse", metrics["mse"], sync_dist=True, batch_size=bs)
-        self.log("val_psnr", psnr, sync_dist=True, batch_size=bs)
         
         if batch_idx == 0:
             self._log_images(x, y, y_hat, "val")
@@ -105,19 +90,16 @@ class DeepFLAIRLightningModule(pl.LightningModule):
 
     def test_step(self, batch, batch_idx):
         x, y = batch["image"], batch["label"]
-        # Use custom Hann window for blending
         y_hat = self.inferer(x, self.model, predictor_importance_map=self.hann_window)
         loss, metrics = self.loss_fn(y_hat, y)
         bs = x.shape[0]
         psnr = self._calculate_psnr(metrics["mse"])
         
         self.log("test_loss", loss, sync_dist=True, batch_size=bs)
-        self.log("test_l1", metrics["l1"], sync_dist=True, batch_size=bs)
         self.log("test_mse", metrics["mse"], sync_dist=True, batch_size=bs)
         self.log("test_psnr", psnr, sync_dist=True, batch_size=bs)
         self.log("test_ssim", metrics["ssim_loss"], sync_dist=True, batch_size=bs)
         
-        # Save qualitative results (NIfTI) - Match paper methodology
         self._save_test_result(batch, y_hat)
         
         if batch_idx == 0:
@@ -130,27 +112,15 @@ class DeepFLAIRLightningModule(pl.LightningModule):
             save_dir = os.path.join("outputs", self.logger.name, "test_outputs")
         os.makedirs(save_dir, exist_ok=True)
         
-        # MONAI LoadImaged stores metadata in the 'image' tensor itself as a MetaTensor
-        # or in 'image_meta_dict' for older versions/PL batching
-        img_tensor = batch["image"]
         subj_id = batch.get("subject_id", ["unknown"])[0]
-        
-        # Get original shape and affine
-        # PL might have moved metadata to a separate dict
         meta_dict = batch.get("image_meta_dict", {})
         
-        # Original spatial shape (before padding)
-        # Note: LoadImaged adds 'spatial_shape' to meta
         orig_shape = meta_dict.get("spatial_shape", None)
         output_vol = y_hat[0, 0].detach().cpu().numpy()
         
         if orig_shape is not None:
-            # Handle potential batching of metadata
             s = orig_shape[0].tolist() if torch.is_tensor(orig_shape) else orig_shape
-            p = output_vol.shape # Padded shape
-            
-            # Replicate MONAI's symmetric padding logic for cropping
-            # pad_before = (P - S) // 2
+            p = output_vol.shape
             starts = [(pi - si) // 2 for pi, si in zip(p, s)]
             output_vol = output_vol[
                 starts[0] : starts[0] + s[0],
@@ -158,7 +128,6 @@ class DeepFLAIRLightningModule(pl.LightningModule):
                 starts[2] : starts[2] + s[2]
             ]
         
-        # Original affine matrix
         affine = meta_dict.get("affine", None)
         if affine is not None:
             affine = affine[0].cpu().numpy() if torch.is_tensor(affine) else affine
