@@ -92,7 +92,7 @@ if __name__ == "__main__":
     parser.add_argument("--repeat_dataset", type=int, default=1)
     
     # Model params
-    parser.add_argument("--model_type", type=str, default="unet", choices=["unet", "swin", "attention_unet", "unetr"])
+    parser.add_argument("--model_type", type=str, default="unet", choices=["unet", "swin", "attention_unet", "unetr", "unetrpp"])
     parser.add_argument("--base_channels", type=int, default=16)
     parser.add_argument("--lr", type=float, default=1e-4)
     parser.add_argument("--activation", type=str, default="relu", choices=["relu", "sigmoid", "hardsigmoid"])

@@ -12,6 +12,7 @@ from src.arch.unet import DeepFLAIRNet
 from src.arch.swin import DeepFLAIRSwin
 from src.arch.attention_unet import DeepFLAIRAttentionNet
 from src.arch.unetr import DeepFLAIRUNETR
+from src.arch.unetrpp import DeepFLAIRUNETRPP
 from src.losses import DeepFLAIRLoss
 
 class DeepFLAIRLightningModule(pl.LightningModule):
@@ -38,6 +39,8 @@ class DeepFLAIRLightningModule(pl.LightningModule):
             self.model = DeepFLAIRAttentionNet(base_channels=base_channels)
         elif model_type == "unetr":
             self.model = DeepFLAIRUNETR(img_size=patch_size, feature_size=base_channels)
+        elif model_type == "unetrpp":
+            self.model = DeepFLAIRUNETRPP(img_size=patch_size, base_dim=max(base_channels, 32))
         else:
             self.model = DeepFLAIRNet(base_channels=base_channels)
             
