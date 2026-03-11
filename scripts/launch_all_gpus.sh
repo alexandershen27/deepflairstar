@@ -4,6 +4,8 @@
 #
 # Usage: bash scripts/launch_all_gpus.sh
 
+PYTHON=/home/shena2/miniconda3/envs/swiflair/bin/python
+
 SESSION_UNET="unet"
 SESSION_SWIN="swin"
 SESSION_ATTN="attention_unet"
@@ -16,7 +18,7 @@ done
 # GPU 0 — CNN U-Net (batch 16, base_channels=16 per paper)
 tmux new-session -d -s $SESSION_UNET
 tmux send-keys -t $SESSION_UNET \
-    "CUDA_VISIBLE_DEVICES=0 python train.py \
+    "CUDA_VISIBLE_DEVICES=0 $PYTHON train.py \
     --model_type unet \
     --batch_size 16 \
     --base_channels 16 \
@@ -27,7 +29,7 @@ tmux send-keys -t $SESSION_UNET \
 # GPU 1 — Swin-UNETR (batch 2, memory constrained)
 tmux new-session -d -s $SESSION_SWIN
 tmux send-keys -t $SESSION_SWIN \
-    "CUDA_VISIBLE_DEVICES=1 python train.py \
+    "CUDA_VISIBLE_DEVICES=1 $PYTHON train.py \
     --model_type swin \
     --batch_size 2 \
     --base_channels 24 \
@@ -38,7 +40,7 @@ tmux send-keys -t $SESSION_SWIN \
 # GPU 2 — Attention U-Net (batch 8, slightly more memory than UNet due to attention maps)
 tmux new-session -d -s $SESSION_ATTN
 tmux send-keys -t $SESSION_ATTN \
-    "CUDA_VISIBLE_DEVICES=2 python train.py \
+    "CUDA_VISIBLE_DEVICES=2 $PYTHON train.py \
     --model_type attention_unet \
     --batch_size 8 \
     --base_channels 16 \
