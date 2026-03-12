@@ -107,7 +107,7 @@ if __name__ == "__main__":
     parser.add_argument("--model_type", type=str, default="unet", choices=["unet", "swin", "attention_unet", "unetr", "unetrpp"])
     parser.add_argument("--base_channels", type=int, default=16)
     parser.add_argument("--lr", type=float, default=1e-4)
-    parser.add_argument("--beta1", type=float, default=0.5)
+    parser.add_argument("--beta1", type=float, default=0.9)
     parser.add_argument("--beta2", type=float, default=0.999)
     parser.add_argument("--activation", type=str, default="relu", choices=["relu", "sigmoid", "hardsigmoid", "none"])
     parser.add_argument("--norm_name", type=str, default="instance", choices=["instance", "batch"])
