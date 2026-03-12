@@ -4,6 +4,7 @@ import torch
 import numpy as np
 import pytorch_lightning as pl
 import itertools
+import random
 from typing import Optional, Sequence, Dict, Any, List
 from sklearn.model_selection import train_test_split
 from torch.utils.data import Dataset as TorchDataset
@@ -21,6 +22,22 @@ from monai.transforms import (
     EnsureTyped,
 )
 from monai.data import Dataset, CacheDataset, PersistentDataset, DataLoader
+
+
+class RandThreeLevelGaussianSmoothd:
+    """33% no blur / 33% weak (sigma 0.25–0.75) / 33% medium (sigma 0.75–1.5)."""
+    def __init__(self, keys):
+        self.weak   = RandGaussianSmoothd(keys=keys, sigma_x=(0.25, 0.75), sigma_y=(0.25, 0.75), sigma_z=(0.25, 0.75), prob=1.0)
+        self.medium = RandGaussianSmoothd(keys=keys, sigma_x=(0.75, 1.5),  sigma_y=(0.75, 1.5),  sigma_z=(0.75, 1.5),  prob=1.0)
+
+    def __call__(self, data):
+        r = random.random()
+        if r < 1/3:
+            return data          # no blur
+        elif r < 2/3:
+            return self.weak(data)
+        else:
+            return self.medium(data)
 
 
 class GridPatchDataset(TorchDataset):
@@ -158,7 +175,7 @@ class DeepFLAIRDataModule(pl.LightningDataModule):
                 random_size=False
             ),
             RandFlipd(keys=["image", "label"], prob=0.5, spatial_axis=[0, 1]),
-            RandGaussianSmoothd(keys=["image"], sigma_x=(0.25, 1.5), sigma_y=(0.25, 1.5), sigma_z=(0.25, 1.5), prob=0.3),
+            RandThreeLevelGaussianSmoothd(keys=["image"]),
             EnsureTyped(keys=["image", "label"]),
         ])
 
