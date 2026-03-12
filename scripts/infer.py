@@ -37,6 +37,14 @@ import torch.nn.functional as F
 # Allow running from repo root without install
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
+# PyTorch 2.6 fix: allowlist MONAI's TraceKeys before any checkpoint loading
+try:
+    import torch.serialization
+    from monai.utils.enums import TraceKeys
+    torch.serialization.add_safe_globals([TraceKeys])
+except Exception:
+    pass
+
 from monai.inferers import sliding_window_inference
 from monai.losses import SSIMLoss
 
