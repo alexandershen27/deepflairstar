@@ -9,6 +9,15 @@ from src.data import DeepFLAIRDataModule
 from src.lightning_module import DeepFLAIRLightningModule
 
 def main(args):
+    # PyTorch 2.6 changed torch.load default to weights_only=True.
+    # MONAI stores TraceKeys enum in checkpoint metadata, so we allowlist it.
+    try:
+        import torch.serialization
+        from monai.utils.enums import TraceKeys
+        torch.serialization.add_safe_globals([TraceKeys])
+    except Exception:
+        pass
+
     # Fix for 'too many fds' error when using CacheDataset and multiprocessing
     import torch.multiprocessing as mp
     mp.set_sharing_strategy('file_system')
