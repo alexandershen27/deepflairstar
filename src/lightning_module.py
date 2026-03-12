@@ -28,13 +28,14 @@ class DeepFLAIRLightningModule(pl.LightningModule):
         grad_weight: float = 1.0,
         patch_size: tuple = (64, 64, 64),
         activation: str = "relu",
+        norm_name: str = "instance",
     ):
         super().__init__()
         self.save_hyperparameters()
         
         if model_type == "swin":
             swin_features = base_channels if base_channels % 12 == 0 else 24
-            self.model = DeepFLAIRSwin(feature_size=swin_features, img_size=patch_size, activation=activation)
+            self.model = DeepFLAIRSwin(feature_size=swin_features, img_size=patch_size, activation=activation, norm_name=norm_name)
         elif model_type == "attention_unet":
             self.model = DeepFLAIRAttentionNet(base_channels=base_channels)
         elif model_type == "unetr":
@@ -42,7 +43,7 @@ class DeepFLAIRLightningModule(pl.LightningModule):
         elif model_type == "unetrpp":
             self.model = DeepFLAIRUNETRPP(img_size=patch_size, base_dim=max(base_channels, 32))
         else:
-            self.model = DeepFLAIRNet(base_channels=base_channels)
+            self.model = DeepFLAIRNet(base_channels=base_channels, activation=activation)
             
         self.loss_fn = DeepFLAIRLoss(
             mse_weight=mse_weight,

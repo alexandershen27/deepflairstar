@@ -49,7 +49,8 @@ def main(args):
         ssim_weight=args.ssim_weight,
         grad_weight=args.grad_weight,
         patch_size=patch_size_tuple,
-        activation=args.activation
+        activation=args.activation,
+        norm_name=args.norm_name,
     )
     
     log_dir = os.path.abspath("logs/mlflow")
@@ -108,7 +109,8 @@ if __name__ == "__main__":
     parser.add_argument("--lr", type=float, default=1e-4)
     parser.add_argument("--beta1", type=float, default=0.5)
     parser.add_argument("--beta2", type=float, default=0.999)
-    parser.add_argument("--activation", type=str, default="relu", choices=["relu", "sigmoid", "hardsigmoid"])
+    parser.add_argument("--activation", type=str, default="relu", choices=["relu", "sigmoid", "hardsigmoid", "none"])
+    parser.add_argument("--norm_name", type=str, default="instance", choices=["instance", "batch"])
     
     # Loss weights
     parser.add_argument("--mse_weight", type=float, default=1.0)

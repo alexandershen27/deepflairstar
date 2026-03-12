@@ -18,7 +18,7 @@ class DoubleConvBlock(nn.Module):
         return self.block(x)
 
 class DeepFLAIRNet(nn.Module):
-    def __init__(self, in_channels: int = 1, out_channels: int = 1, base_channels: int = 16):
+    def __init__(self, in_channels: int = 1, out_channels: int = 1, base_channels: int = 16, activation: str = "relu"):
         super().__init__()
         
         # Encoder
@@ -50,10 +50,18 @@ class DeepFLAIRNet(nn.Module):
         self.up1 = nn.ConvTranspose3d(base_channels * 2, base_channels, kernel_size=2, stride=2)
         self.dec1 = DoubleConvBlock(base_channels * 2, base_channels)
         
-        # Final projection: Direct 1x1x1 Conv + ReLU
+        # Final projection
+        if activation == "sigmoid":
+            act_layer = nn.Sigmoid()
+        elif activation == "hardsigmoid":
+            act_layer = nn.Hardsigmoid()
+        elif activation == "none":
+            act_layer = nn.Identity()
+        else:
+            act_layer = nn.ReLU()
         self.final_conv = nn.Sequential(
             nn.Conv3d(base_channels, out_channels, kernel_size=1),
-            nn.ReLU() 
+            act_layer,
         )
 
         self.apply(self._init_weights)
