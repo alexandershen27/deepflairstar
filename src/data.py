@@ -15,7 +15,6 @@ from monai.transforms import (
     ScaleIntensityd,
     SpatialPadd,
     SpatialCrop,
-    CropForegroundd,
     RandSpatialCropSamplesd,
     RandFlipd,
     RandGaussianSmoothd,
@@ -23,8 +22,6 @@ from monai.transforms import (
 )
 from monai.data import Dataset, CacheDataset, PersistentDataset, DataLoader
 
-def threshold_at_zero_point_zero_three(x):
-    return x > 0.03
 
 class GridPatchDataset(TorchDataset):
     def __init__(self, base_dataset, patch_coords, patch_size, transform=None):
@@ -152,7 +149,6 @@ class DeepFLAIRDataModule(pl.LightningDataModule):
             LoadImaged(keys=["image", "label"]),
             EnsureChannelFirstd(keys=["image", "label"]),
             ScaleIntensityd(keys=["image", "label"], minv=0.0, maxv=1.0),
-            CropForegroundd(keys=["image", "label"], source_key="image", select_fn=threshold_at_zero_point_zero_three, margin=0),
             SpatialPadd(keys=["image", "label"], spatial_size=self.padding_size),
             RandSpatialCropSamplesd(
                 keys=["image", "label"],
