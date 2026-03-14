@@ -1,0 +1,377 @@
+\documentclass{article}
+
+\usepackage[final]{neurips_2024}
+\usepackage[utf8]{inputenc}
+\usepackage[T1]{fontenc}
+\usepackage{hyperref}
+\usepackage{url}
+\usepackage{booktabs}
+\usepackage{amsfonts}
+\usepackage{nicefrac}
+\usepackage{microtype}
+\usepackage{xcolor}
+\usepackage{amsmath}
+\usepackage{graphicx}
+
+\title{DeepFLAIR*: Evaluating U-Net Architectures for EPI-to-FLAIR* Synthesis}
+
+\author{%
+  Alexander Shen \\
+  Department of Neurology, Cedars-Sinai Medical Center, Los Angeles, CA
+}
+
+\begin{document}
+
+\maketitle
+
+\begin{abstract}
+FLAIR* is a combined MRI contrast that visualises multiple sclerosis lesions
+alongside the central vein sign, but its acquisition requires two separate
+scans and offline post-processing, limiting clinical adoption. We investigate
+whether FLAIR* can be synthesised directly from a single T2*-weighted 3D-EPI
+acquisition using deep learning, and evaluate whether architectural complexity
+beyond a standard U-Net provides measurable benefit. We train and compare four
+encoder-decoder architectures (a baseline U-Net, Attention U-Net, Swin-UNETR,
+and UNETR++ with Voxel-Focused Attention) on a dataset of 89 subjects, using
+a composite loss of MSE, SSIM, and gradient consistency. All CNN-based models
+achieve comparable test SSIM (${\approx}0.918$), while the transformer-based
+UNETR++ produces visibly blurred outputs due to insufficiently global attention.
+Our findings suggest that for this synthesis task, dataset size, memory
+constraints on batch size, and loss function design are the dominant performance
+factors, consistent with conclusions drawn in the segmentation literature.
+Future work should prioritise patch sampling strategies and loss weighting over
+architectural novelty.
+\end{abstract}
+
+% -----------------------------------------------------------------------
+\section{Introduction}
+% -----------------------------------------------------------------------
+
+Multiple sclerosis (MS) is a chronic inflammatory disease which presents
+lesions in the brain. These lesions can be seen in Magnetic Resonance Imaging
+(MRI), and are particularly visible in T2-FLAIR scans, where they appear as
+hyperintense (brighter) against white brain matter~\cite{thompson2018diagnosis,filippi2011magnetic}. The Central Vein
+Sign (CVS) is a key biomarker which can be used to differentiate MS lesions
+from common mimics~\cite{sati2016central,daboul2023effect}. CVS can be most clearly seen in T2*-weighted
+magnitude 3D-EPI images, in which veins appear hypointense. By combining the
+T2*-weighted and T2-FLAIR through image multiplication, we can generate a
+FLAIR* image which demonstrates hyperintense lesions with dark central
+veins~\cite{sati2012flair,sati2017rapid}.
+
+A single high quality MRI scan can take 25 minutes~\cite{ozutemiz2023seven}. Movement
+during and between scans can lead to artifacts and misregistration, and long
+periods in the scanner may not be accessible to all patients. Workflows which
+require lengthy scans, combine multiple acquisitions, or involve offline
+post-processing can restrict implementation in clinical settings. Emerging work
+has offered deep learning solutions through image synthesis tasks such as
+super-resolution~\cite{quah2023improving} and synthetic contrasts~\cite{genc2023deepswi,baburyan2025deepflair}.
+
+Producing an accurate FLAIR* from the T2*-weighted magnitude images is
+particularly difficult as it requires learning to suppress the hyperintense
+cerebrospinal fluid (CSF) to hypointense while maintaining fine details of
+the CVS. Regression-based encoder-decoder architectures, such as the U-Net,
+are well suited to this task. These architectures provide the depth to learn
+complex features while preserving details through skip connections. In this
+paper, we compare the performance of four U-Net architectures on the FLAIR*
+synthesis task.
+
+% -----------------------------------------------------------------------
+\section{Methods}
+% -----------------------------------------------------------------------
+
+We used the CAVS-pilot dataset (N=89) with a train/val/test split of 0.7,
+0.1, and 0.2 respectively. FLAIR* volumes were generated from T2* 3D-EPI and
+T2-FLAIR acquisitions through linear image registration, interpolation, and
+image multiplication~\cite{sati2012flair}. Each volume was individually
+intensity-normalized to $[0, 1]$, and padded to $(320, 384, 320)$ voxels.
+
+For training, $(64, 64, 64)$ voxel patches were extracted randomly and
+augmented with random flipping in the axial and sagittal directions. Gaussian
+blurring was applied at three discrete levels (none, weak, medium) with equal
+probability. Augmentation was not applied during validation or testing. Patches
+were passed into each architecture with subject multiplication to balance
+epoch lengths to 128 steps (Table~\ref{tab:training}). During inference,
+sliding window patches of size $(64, 64, 64)$ were taken at stride 32, and
+blended with Gaussian overlap.
+
+Loss was calculated through a composite objective function combining
+mean-squared-error (MSE) and structural similarity (1-SSIM)~\cite{wang2004ssim}.
+A gradient consistency term was also included, calculated as the L1 loss of
+finite differences in each spatial dimension, averaged across axes. Gradient
+clipping (norm $\leq 1.0$) was applied. All loss weights were set equally to
+1.0. Models were optimized with Adam ($\text{lr}=10^{-4}$, $\beta_1=0.9$,
+$\beta_2=0.999$).
+
+Models were trained until plateauing or reaching 300 epochs. The checkpoint
+producing the lowest validation loss was used for evaluation on MSE, SSIM,
+and peak signal-to-noise ratio (PSNR). All experiments were conducted on an
+Ubuntu workstation with a 32-core 3.7~GHz CPU, 256~GB memory, and four
+NVIDIA Quadro RTX 6000 GPUs.
+
+In total, 4 architectures were tested: the baseline U-Net, Attention U-Net,
+Swin-UNETR, and UNETR++ with Voxel-Focused Attention. The U-Net and Swin-UNETR
+were additionally evaluated with a sigmoid final activation.
+
+\begin{table}[h]
+  \caption{Training configuration per architecture.}
+  \label{tab:training}
+  \centering
+  \begin{tabular}{lcccc}
+    \toprule
+    Architecture & Batch Size & Subject Mult. & Steps/Epoch & Params \\
+    \midrule
+    U-Net           & 16 & 8  & 128 & 5.6M  \\
+    Attention U-Net & 16 & 8  & 128 & 5.7M  \\
+    Swin-UNETR      & 2  & 1  & 128 & 15.7M \\
+    UNETR++ (VFA)   & 32 & 16 & 128 & 1.2M  \\
+    \bottomrule
+  \end{tabular}
+\end{table}
+
+\subsection{Baseline U-Net}
+
+The baseline U-Net from the original DeepFLAIR* paper~\cite{baburyan2025deepflair} was
+replicated in PyTorch. The encoder has four Double Convolutional layers with
+BatchNorm and LeakyReLU, and average pooling steps in between. The bottleneck
+is a full Double Convolution layer, and the decoder matches the encoder
+dimensions with skip connections allowing features to propagate past the
+bottleneck. The output goes to a $1{\times}1{\times}1$ convolutional block
+followed by a ReLU activation. We also evaluated a final Sigmoid activation.
+BatchNorm was used as larger batch sizes are feasible due to the lower memory
+footprint. In the original paper, the network was trained for 75 epochs using
+deterministic grid patching and fine-tuned with Optuna at batch size 8.
+
+\subsection{Attention U-Net}
+
+The Attention U-Net~\cite{oktay2018attention} introduces attention gates between the
+skip connections of the encoder and decoder. These gates learn which encoder
+features should be propagated or suppressed. For example, they can allow CVS
+structure to pass through while attenuating hyperintense CSF. The gates are
+computed as:
+
+\begin{equation}
+  W_x(\mathbf{x}) + W_g(\mathbf{g})
+  \xrightarrow{\text{ReLU}}
+  \psi\,(1{\times}1{\times}1\;\text{conv})
+  \xrightarrow{\text{Sigmoid}}
+  \alpha
+  \quad\Rightarrow\quad
+  \mathbf{x} \cdot \alpha
+\end{equation}
+
+where $\mathbf{x}$ is the skip connection, $\mathbf{g}$ is the gating signal
+from the decoder, and $\alpha$ is the learned spatial attention mask. The
+Attention U-Net is otherwise identical to the baseline U-Net.
+
+\subsection{Swin-UNETR}
+
+Pure Vision Transformers (ViTs) compare each voxel to all others, giving
+quadratic complexity in the number of voxels. They also lack the inherent
+local spatial inductive bias of CNNs, requiring large datasets to learn
+spatial relationships from scratch.
+
+The Sliding-window U-Net Transformer (Swin-UNETR)~\cite{hatamizadeh2022swin,liu2021swin} limits
+self-attention to local windows of $(2,2,2)$ tokens, while a shifted-window
+strategy allows each token to interact with new tokens across layers, building
+a global receptive field. We used a feature size of 24. Due to memory
+constraints, batch size was limited to 2. BatchNorm is unstable at small batch
+sizes, so instance normalization was used throughout~\cite{ulyanov2017instance}.
+
+\subsection{UNETR++ with Voxel-Focused Attention}
+
+UNETR++~\cite{shaker2024unetrpp} addresses ViT quadratic complexity through Efficient
+Paired Attention (EPA) blocks. Each EPA block consists of two parallel branches
+sharing Q and K projections but with separate V:
+
+\begin{itemize}
+  \item \textbf{Spatial branch (VFA):} Each voxel computes self-attention only
+    within its local $(3,3,3)$ neighborhood, reducing complexity from
+    $\mathcal{O}(N^2)$ to $\mathcal{O}(27N)$.
+  \item \textbf{Channel branch:} Each channel is treated as a token, computing
+    a $C \times C$ attention matrix to capture global feature relationships
+    without spatial cost.
+\end{itemize}
+
+The outputs of both branches are summed and projected. The encoder uses a
+3-stage hierarchy with patch size 4, producing $16^3$, $8^3$, and $4^3$ token
+grids, with a CNN decoder and skip connections. The architecture has
+approximately 1.2M parameters, enabling training at batch size 32 alongside
+heavier models.
+
+% -----------------------------------------------------------------------
+\section{Results}
+% -----------------------------------------------------------------------
+
+Table~\ref{tab:results} reports validation loss (the composite training
+objective) and test-set metrics for all architectures. Validation loss is
+included as it is the only metric available for all five models.
+Test metrics are computed on the held-out test set (18 subjects) on full
+volumes normalised to $[0,1]$; SSIM is reported as actual structural
+similarity ($= 1 - \mathcal{L}_\text{SSIM}$, higher is better),
+and MSE is mean-squared error (lower is better).
+
+\begin{table}[h]
+  \caption{Validation loss and test-set performance. Best result per column
+           in \textbf{bold}. Dashes indicate eval still pending.}
+  \label{tab:results}
+  \centering
+  \begin{tabular}{lccc}
+    \toprule
+    Architecture    & Val Loss $\downarrow$ & Test MSE $\downarrow$ & Test SSIM $\uparrow$ \\
+    \midrule
+    U-Net (ReLU)    & 0.0737          & 0.000869          & 0.918          \\
+    U-Net (Sigmoid) & \textbf{0.0617} & —                 & —              \\
+    Attention U-Net & 0.0750          & 0.000914          & 0.914          \\
+    Swin-UNETR      & 0.0637          & \textbf{0.000901} & \textbf{0.918} \\
+    UNETR++ (VFA)   & 0.1014          & —                 & —              \\
+    \bottomrule
+  \end{tabular}
+\end{table}
+
+Training curves are shown in Figure~\ref{fig:curves}. U-Net (Sigmoid)
+achieved the lowest validation loss ($0.0617$ at epoch~192), followed by
+Swin-UNETR ($0.0637$ at epoch~230), U-Net ReLU ($0.0737$), and Attention
+U-Net ($0.0750$). UNETR++ converged to a higher validation loss
+(${\approx}0.10$), consistent with blurry outputs from over-localised
+$(3{\times}3{\times}3)$ VFA windows.
+
+\begin{figure}[h]
+  \centering
+  \includegraphics[width=\linewidth]{report_files/training_curves.png}
+  \caption{Validation loss over training epochs. Dashed vertical lines mark
+           each model's best-checkpoint epoch.}
+  \label{fig:curves}
+\end{figure}
+
+Qualitative results are shown in Figure~\ref{fig:qual}. CNN-based
+architectures produce visually plausible FLAIR* predictions with broadly
+correct CSF suppression. UNETR++ outputs are noticeably blurred, particularly
+in fine structures. Difference maps reveal residual errors concentrated
+around CSF boundaries and deep white matter, where contrast inversion is
+most challenging.
+
+\begin{figure}[h]
+  \centering
+  \includegraphics[width=\linewidth]{report_files/05_004_sagittal_gt_pred_diff.png}
+  \caption{Sagittal slice comparison. \textit{Top}: ground-truth FLAIR*.
+           \textit{Middle}: predicted FLAIR*. \textit{Bottom}: signed
+           difference map (Pred $-$ GT); red indicates over-prediction,
+           blue indicates under-prediction ($\pm 0.25$ intensity units).}
+  \label{fig:qual}
+\end{figure}
+
+% -----------------------------------------------------------------------
+\section{Discussion}
+% -----------------------------------------------------------------------
+
+\subsection{Architecture Comparison}
+
+Across both validation loss and test metrics, the performance gap between
+architectures was surprisingly narrow. Swin-UNETR achieved the second-best
+validation loss ($0.0637$) and matched U-Net (ReLU) on test SSIM ($0.918$),
+despite having nearly $3\times$ the parameters and requiring $8\times$ smaller
+batch sizes due to memory constraints. Attention U-Net, which adds soft
+attention gates to the skip connections, did not improve over the plain U-Net
+on any metric, suggesting that the attention mechanism did not provide
+meaningful benefit for this synthesis task. UNETR++ produced the worst
+validation loss (${\approx}0.10$) and visibly blurry outputs, which we
+attribute to the $(3{\times}3{\times}3)$ local VFA window being too small
+to reason about global intensity structure — a limitation that matters more
+for synthesis than segmentation.
+
+These results echo the conclusions of Isensee et al.~\cite{isensee2021nnu},
+who showed that a well-configured U-Net consistently outperforms more complex
+architectures on medical image segmentation benchmarks. We find that this
+holds for synthesis as well: the dominant bottlenecks in this task are dataset
+size, memory constraints that limit effective batch size for transformer-based
+models, and the difficulty of learning regional intensity inversions (e.g.\
+CSF suppression) — none of which are addressed by architectural novelty alone.
+The most meaningful performance gain came not from a change in architecture
+but from switching the final activation from ReLU to Sigmoid, which constrained
+outputs to $[0,1]$ and yielded the best validation loss overall ($0.0617$).
+
+
+\subsection{Loss Functions}
+
+The composite loss function for the baseline training used in DeepFLAIR* was
+manually tuned~\cite{baburyan2025deepflair}. We trained models with equal weighting to
+evaluate the efficacy of each loss component in image-to-image translation.
+
+During training, validation loss was dominated by the SSIM term, while MSE
+and gradient loss remained relatively low. This likely contributes to
+difficulty learning CSF hypointensities in the ventricles and brainstem, which
+require the model to invert the intensity of entire regions. Increasing MSE
+weight empirically reduced MSE without worsening SSIM or gradient loss.
+
+L1 loss was also tested to encourage learning of black background voxels. An
+early Swin-UNETR experiment with BatchNorm and sigmoid failed to suppress
+intensities with L1, while hard sigmoid succeeded. L1 also appeared to push
+CSF intensities darker than the FLAIR* ground truth.
+
+\subsection{Final Activation Functions}
+
+A ReLU activation is used at the output of the baseline U-Net. This
+constrains output to positive values but does not cap outputs below 1.0.
+During validation, predicted voxels occasionally exceeded 1.0. Empirically,
+this did not appear to affect SSIM loss significantly.
+
+During early training, some architectures produced mostly-black outputs
+(near-zero activations). Recovery occurred within several epochs, likely due
+to gradient signal from skip connections. Kaiming initialization may have
+stabilized early training.
+
+Preliminary Swin-UNETR experiments with instance norm and no final activation
+successfully trained for 30 epochs with reasonable outputs, suggesting
+activation functions may not be strictly necessary. With BatchNorm, sigmoid
+struggled to push background voxels to zero even with L1 loss, while hard
+sigmoid succeeded. BatchNorm also produced more washed-out images generally.
+
+\subsection{Learning Rate and Training Dynamics}
+
+The Optuna-tuned Adam parameters from~\cite{baburyan2025deepflair}
+($\beta_1=0.468$, $\beta_2=0.94$) appeared too aggressive for learning CSF
+hypointensities. Models would briefly produce dark CSF patches, spiking the
+loss, then immediately revert. Standard Adam ($\beta_1=0.9$) was used for all
+reported experiments. No learning rate scheduler was used; manually annealing
+the learning rate after plateau detection would likely improve final
+performance.
+
+\subsection{Limitations}
+
+The original DeepFLAIR* implementation uses deterministic grid patching at
+stride 32, yielding a fixed number of patches per subject. This was not
+feasible for Swin-UNETR due to memory constraints and epoch length. Random
+patching was used instead, which may reduce spatial coverage consistency but
+could improve generalization.
+
+Gaussian blending was used for sliding window inference. A Hann window would
+theoretically reduce boundary artifacts but could not be verified within the
+scope of this work. Optuna hyperparameter search was not applied to all
+architectures due to compute constraints.
+
+\subsection{Future Work}
+
+Several architectures warrant further investigation, including DADC layers
+(Dual Attention and Depthwise Convolutions) for high-frequency texture
+preservation, GAN-based training for perceptual sharpness, and diffusion
+models with appropriate conditioning for stochastic synthesis. A learning rate
+scheduler (e.g., ReduceLROnPlateau) would likely yield further improvement for
+all architectures tested.
+
+% -----------------------------------------------------------------------
+\section*{Acknowledgments}
+% -----------------------------------------------------------------------
+
+Thank you to Inga for providing me her data and help with this assignment, and to Bryan and Sreekanth for helping me get started. 
+Thank you to Professor Kao for a fantastic class.
+
+% -----------------------------------------------------------------------
+\section*{References}
+% -----------------------------------------------------------------------
+
+{\small
+\bibliographystyle{unsrt}
+\bibliography{references}
+}
+
+\end{document}
