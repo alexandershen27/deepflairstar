@@ -208,7 +208,9 @@ to $[0,1]$; SSIM is reported as actual structural similarity (higher is
 better), and MSE is mean-squared error (lower is better).
 
 \begin{table}[h]
-  \caption{Validation loss and test-set performance. Best result per column in \textbf{bold}.}
+  \caption{Validation loss and test-set performance. Best result per column in
+           \textbf{bold}. $^\dagger$Still training at submission; final results
+           will be posted at \url{https://github.com/alexandershen27/deepflairstar}.}
   \label{tab:results}
   \centering
   \begin{tabular}{lccc}
@@ -219,6 +221,7 @@ better), and MSE is mean-squared error (lower is better).
     U-Net (Sigmoid) & \textbf{0.0617} & 0.000914          & \textbf{0.924} \\
     Attention U-Net & 0.0750          & 0.000914          & 0.914          \\
     Swin-UNETR      & 0.0637          & 0.000901          & 0.918          \\
+    Swin-UNETR (Sigmoid)$^\dagger$ & 0.1204 & — & — \\
     UNETR++ (VFA)   & 0.1014          & 0.001168          & 0.888          \\
     \bottomrule
   \end{tabular}
