@@ -20,13 +20,14 @@ import mlflow
 
 EXPERIMENTS = [
     ("U-Net (ReLU)",     "DF_unet_v2"),
+    ("U-Net (Sigmoid)",  "DF_unet_sigmoid_v2"),
     ("Attention U-Net",  "DF_attention_unet_v2"),
     ("Swin-UNETR",       "DF_swin_v2"),
-    ("U-Net (Sigmoid)",  "DF_unet_sigmoid_v2"),
+    ("UNETR++ (VFA)",    "DF_unetrpp_BS32"),
 ]
 
 STEPS_PER_EPOCH = 32
-COLORS = ["#1f77b4", "#ff7f0e", "#2ca02c", "#d62728"]
+COLORS = ["#1f77b4", "#d62728", "#ff7f0e", "#2ca02c", "#9467bd"]
 
 
 def main():
