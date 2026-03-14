@@ -37,10 +37,19 @@ MODELS = [
 
 def foreground_centroid(vol, thresh=0.03):
     nz = np.argwhere(vol > thresh)
-    return int(nz[:, 0].mean()) if len(nz) > 0 else vol.shape[0] // 2
+    return nz.mean(axis=0).astype(int).tolist() if len(nz) > 0 else [s // 2 for s in vol.shape]
 
 
-def make_grid(subject_id, epi_np, gt_np, preds, out_path):
+def get_slice(vol, c, view):
+    if view == "axial":
+        return vol[c[0], :, :]
+    elif view == "coronal":
+        return vol[:, c[1], :]
+    else:  # sagittal
+        return vol[:, :, c[2]]
+
+
+def make_grid(subject_id, epi_np, gt_np, preds, out_path, view="coronal"):
     """
     3-row × 4-col figure.
     Row 0: EPI repeated across columns (with architecture label as col title)
@@ -48,7 +57,8 @@ def make_grid(subject_id, epi_np, gt_np, preds, out_path):
     Row 2: one prediction per column
     """
     n = len(preds)
-    ax_sl = foreground_centroid(gt_np)
+    c = foreground_centroid(gt_np)
+    sl_idx = {"axial": c[0], "coronal": c[1], "sagittal": c[2]}[view]
 
     fig, axes = plt.subplots(3, n, figsize=(3.5 * n, 10),
                              gridspec_kw={"hspace": 0.05, "wspace": 0.04})
@@ -60,21 +70,21 @@ def make_grid(subject_id, epi_np, gt_np, preds, out_path):
         for row in range(3):
             ax = axes[row, col]
             arr = sources[row] if sources[row] is not None else pred_np
-            ax.imshow(arr[ax_sl], cmap="gray", vmin=0, vmax=1)
+            ax.imshow(get_slice(arr, c, view), cmap="gray", vmin=0, vmax=1)
             ax.axis("off")
             if row == 0:
                 ax.set_title(name, fontsize=11, fontweight="bold", pad=5)
             if col == 0:
                 ax.set_ylabel(row_labels[row], fontsize=10, labelpad=6)
 
-    fig.suptitle(f"Architecture Comparison — {subject_id}  (axial slice {ax_sl})",
+    fig.suptitle(f"Architecture Comparison — {subject_id}  ({view} slice {sl_idx})",
                  fontsize=12, fontweight="bold", y=1.01)
     plt.savefig(out_path, dpi=200, bbox_inches="tight")
     plt.close(fig)
     print(f"Saved → {out_path}")
 
 
-def run(subject_id, npy_dir, data_dir, out_dir):
+def run(subject_id, npy_dir, data_dir, out_dir, args):
     # Load GT and EPI from dataset
     dm = DeepFLAIRDataModule(data_dir=data_dir, batch_size=1, num_workers=0)
     dm.setup("test")
@@ -107,8 +117,8 @@ def run(subject_id, npy_dir, data_dir, out_dir):
         return
 
     os.makedirs(out_dir, exist_ok=True)
-    out_path = os.path.join(out_dir, f"{subject_id}_grid.png")
-    make_grid(subject_id, epi_np, gt_np, preds, out_path)
+    out_path = os.path.join(out_dir, f"{subject_id}_grid_{args.view}.png")
+    make_grid(subject_id, epi_np, gt_np, preds, out_path, view=args.view)
 
 
 def main():
@@ -118,6 +128,7 @@ def main():
     parser.add_argument("--npy_dir",   default="vis/compare")
     parser.add_argument("--data_dir",  default="data")
     parser.add_argument("--out_dir",   default="vis/figures")
+    parser.add_argument("--view",      default="coronal", choices=["axial", "coronal", "sagittal"])
     parser.add_argument("--all",       action="store_true",
                         help="Generate figures for all subjects with saved predictions")
     args = parser.parse_args()
@@ -128,9 +139,9 @@ def main():
         subject_ids = sorted(set(f.split("_pred_")[0] for f in npy_files))
         print(f"Found {len(subject_ids)} subjects: {subject_ids}")
         for sid in subject_ids:
-            run(sid, args.npy_dir, args.data_dir, args.out_dir)
+            run(sid, args.npy_dir, args.data_dir, args.out_dir, args)
     elif args.subject_id:
-        run(args.subject_id, args.npy_dir, args.data_dir, args.out_dir)
+        run(args.subject_id, args.npy_dir, args.data_dir, args.out_dir, args)
     else:
         parser.print_help()
 
