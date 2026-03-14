@@ -175,7 +175,7 @@ def run(subject_id, npy_dir, data_dir, out_dir):
     os.makedirs(out_dir, exist_ok=True)
     sid = subject_id
 
-    for view in ["axial", "coronal"]:
+    for view in ["axial", "coronal", "sagittal"]:
         make_gt_pred_diff(sid, gt_np, preds,
                           os.path.join(out_dir, f"{sid}_{view}_gt_pred_diff.png"), view)
         make_gt_pred(sid, gt_np, preds,
