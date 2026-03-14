@@ -211,19 +211,18 @@ similarity ($= 1 - \mathcal{L}_\text{SSIM}$, higher is better),
 and MSE is mean-squared error (lower is better).
 
 \begin{table}[h]
-  \caption{Validation loss and test-set performance. Best result per column
-           in \textbf{bold}. Dashes indicate eval still pending.}
+  \caption{Validation loss and test-set performance. Best result per column in \textbf{bold}.}
   \label{tab:results}
   \centering
   \begin{tabular}{lccc}
     \toprule
     Architecture    & Val Loss $\downarrow$ & Test MSE $\downarrow$ & Test SSIM $\uparrow$ \\
     \midrule
-    U-Net (ReLU)    & 0.0737          & 0.000869          & 0.918          \\
-    U-Net (Sigmoid) & \textbf{0.0617} & —                 & —              \\
+    U-Net (ReLU)    & 0.0737          & \textbf{0.000869} & 0.918          \\
+    U-Net (Sigmoid) & \textbf{0.0617} & 0.000914          & \textbf{0.924} \\
     Attention U-Net & 0.0750          & 0.000914          & 0.914          \\
-    Swin-UNETR      & 0.0637          & \textbf{0.000901} & \textbf{0.918} \\
-    UNETR++ (VFA)   & 0.1014          & —                 & —              \\
+    Swin-UNETR      & 0.0637          & 0.000901          & 0.918          \\
+    UNETR++ (VFA)   & 0.1014          & 0.001168          & 0.888          \\
     \bottomrule
   \end{tabular}
 \end{table}
