@@ -104,7 +104,7 @@ producing the lowest validation loss was used for evaluation on MSE and SSIM.
 All experiments were conducted on an Ubuntu workstation with a 32-core
 3.7~GHz CPU, 256~GB memory, and four NVIDIA Quadro RTX 6000 GPUs.
 
-In total, 4 architectures were tested: the baseline U-Net, Attention U-Net,
+In total, four architectures were tested: the baseline U-Net, Attention U-Net,
 Swin-UNETR, and UNETR++ with Voxel-Focused Attention. The U-Net and Swin-UNETR
 were additionally evaluated with a sigmoid final activation.
 
@@ -203,7 +203,7 @@ heavier models.
 
 Table~\ref{tab:results} reports validation loss (the composite training
 objective) and test-set metrics for all architectures. Test metrics are
-computed on the held-out test set (18 subjects) on full volumes normalised
+computed on the held-out test set (18 subjects) on full volumes normalized
 to $[0,1]$; SSIM is reported as actual structural similarity (higher is
 better), and MSE is mean-squared error (lower is better).
 
@@ -383,10 +383,6 @@ regional intensity inversions such as CSF suppression.
 
 Thank you to Inga for providing me her data and help with this assignment, and to Bryan and Sreekanth for helping me get started.
 Thank you to Professor Kao for a fantastic class.
-
-% -----------------------------------------------------------------------
-\section*{References}
-% -----------------------------------------------------------------------
 
 {\small
 \bibliographystyle{unsrt}
