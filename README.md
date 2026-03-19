@@ -14,4 +14,5 @@ This work was done independently for C147A, not for my lab. I received the data 
 | UNETR++ (VFA)†† | 0.0801 | 0.000883 | 0.905
 
 † Reached 300 epochs before plateauing. Possibly would have achieved lower loss than Swin-UNETR with ReLU
+
 †† Continued training, improved from results during the paper significantly
